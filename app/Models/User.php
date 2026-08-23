@@ -42,6 +42,8 @@ class User extends Authenticatable
         'password',
         'contact_no',
         'role',
+        'license_no',
+        'is_active',
     ];
 
     /**
@@ -64,6 +66,7 @@ class User extends Authenticatable
         return [
             'email_verified_at' => 'datetime',
             'password' => 'hashed',
+            'is_active' => 'boolean',
         ];
     }
 
@@ -91,6 +94,11 @@ class User extends Authenticatable
     public function isStaff(): bool
     {
         return ! $this->isPatient();
+    }
+
+    public function isActive(): bool
+    {
+        return (bool) $this->is_active;
     }
 
     /**
@@ -131,5 +139,21 @@ class User extends Authenticatable
     public function treatmentRecords(): HasMany
     {
         return $this->hasMany(TreatmentRecord::class, 'patient_id');
+    }
+
+    /**
+     * Prescriptions issued to this user as a patient.
+     */
+    public function prescriptions(): HasMany
+    {
+        return $this->hasMany(Prescription::class, 'patient_id');
+    }
+
+    /**
+     * Prescriptions authored by this user as the prescribing dentist.
+     */
+    public function dentistPrescriptions(): HasMany
+    {
+        return $this->hasMany(Prescription::class, 'dentist_id');
     }
 }

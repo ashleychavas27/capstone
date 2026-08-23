@@ -15,9 +15,20 @@
         @endif
     </div>
 
+
+
     {{-- Metric cards --}}
     <div class="row g-3 mb-4">
+        @php
+            $statLinks = [
+                'totalPatients' => auth()->user()->isStaff() ? route('patients.index') : route('appointments.book'),
+                'upcomingAppointments' => auth()->user()->isStaff() ? route('appointments.calendar') : route('appointments.book'),
+                'pendingBookings' => auth()->user()->isStaff() ? route('appointments.index') : route('appointments.book'),
+                'todayAppointments' => route('dashboard'),
+            ];
+        @endphp
         <div class="col-6 col-lg-3">
+            <a href="{{ $statLinks['totalPatients'] }}" class="text-decoration-none">
             <div class="card h-100">
                 <div class="card-body d-flex align-items-center gap-3">
                     <div class="stat-icon bg-primary-subtle text-primary"><i class="bi bi-people"></i></div>
@@ -27,8 +38,10 @@
                     </div>
                 </div>
             </div>
+            </a>
         </div>
         <div class="col-6 col-lg-3">
+            <a href="{{ $statLinks['upcomingAppointments'] }}" class="text-decoration-none">
             <div class="card h-100">
                 <div class="card-body d-flex align-items-center gap-3">
                     <div class="stat-icon bg-success-subtle text-success"><i class="bi bi-calendar2-check"></i></div>
@@ -38,8 +51,10 @@
                     </div>
                 </div>
             </div>
+            </a>
         </div>
         <div class="col-6 col-lg-3">
+            <a href="{{ $statLinks['pendingBookings'] }}" class="text-decoration-none">
             <div class="card h-100">
                 <div class="card-body d-flex align-items-center gap-3">
                     <div class="stat-icon bg-warning-subtle text-warning"><i class="bi bi-hourglass-split"></i></div>
@@ -49,8 +64,10 @@
                     </div>
                 </div>
             </div>
+            </a>
         </div>
         <div class="col-6 col-lg-3">
+            <a href="{{ $statLinks['todayAppointments'] }}" class="text-decoration-none">
             <div class="card h-100">
                 <div class="card-body d-flex align-items-center gap-3">
                     <div class="stat-icon bg-info-subtle text-info"><i class="bi bi-calendar3"></i></div>
@@ -60,6 +77,7 @@
                     </div>
                 </div>
             </div>
+            </a>
         </div>
     </div>
 
@@ -92,9 +110,16 @@
                             </thead>
                             <tbody>
                                 @forelse($schedule as $appt)
-                                    <tr>
+                                    <tr class="{{ auth()->user()->isStaff() ? 'row-click' : '' }}" data-href="{{ route('patients.show', $appt->patient) }}"
+                                        {{ auth()->user()->isStaff() ? 'title="View patient record"' : '' }}>
                                         <td class="fw-semibold">{{ $appt->formatted_slot }}</td>
-                                        <td>{{ $appt->patient->name ?? '—' }}</td>
+                                        <td>
+                                            @if(auth()->user()->isStaff())
+                                                <a href="{{ route('patients.show', $appt->patient) }}" class="text-decoration-none">{{ $appt->patient->name ?? '—' }}</a>
+                                            @else
+                                                {{ $appt->patient->name ?? '—' }}
+                                            @endif
+                                        </td>
                                         @unless(auth()->user()->isDentist())
                                             <td>{{ $appt->dentist->name ?? 'Unassigned' }}</td>
                                         @endunless
@@ -114,6 +139,10 @@
                             </tbody>
                         </table>
                     </div>
+                </div>
+                <div class="card-footer bg-white small text-muted no-print" style="border-top: 1px solid #B4B1B2;">
+                    <i class="bi bi-hand-index me-1"></i>{{ auth()->user()->isStaff() ? 'Click a patient name to open their record.' : '' }}
+                    Showing {{ $schedule->count() }} appointment(s).
                 </div>
             </div>
         </div>

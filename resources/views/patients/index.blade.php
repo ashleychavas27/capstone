@@ -78,6 +78,13 @@
 
         // Re-apply our custom search styling (dtDefaults.language.search uses an icon).
         $('#patientsTable_filter input').attr('placeholder', 'Search name, email, contact…').addClass('form-control-sm');
+
+        // Click anywhere on a row to open the patient record.
+        $('#patientsTable tbody').on('click', 'tr', function (e) {
+            if ($(e.target).closest('a, button').length) return;
+            const data = table.row(this).data();
+            if (data?.actions) window.location.href = data.actions;
+        });
     });
 </script>
 @endpush

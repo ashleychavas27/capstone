@@ -144,8 +144,8 @@
                     data: 'status',
                     render: (d) => {
                         const map = {
-                            Pending: 'text-bg-warning', Confirmed: 'text-bg-success',
-                            Completed: 'text-bg-primary', Cancelled: 'text-bg-secondary'
+                            Pending: 'badge-status-pending', Confirmed: 'badge-status-confirmed',
+                            Completed: 'badge-status-completed', Cancelled: 'badge-status-cancelled'
                         };
                         return `<span class="badge rounded-pill badge-status ${map[d] || 'text-bg-secondary'}">${d}</span>`;
                     }

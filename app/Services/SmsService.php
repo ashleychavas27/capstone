@@ -108,12 +108,71 @@ class SmsService
         $slot = $appointment->formatted_slot;
 
         $message = sprintf(
-            'Good day, %s! Your appointment at %s on %s for %s has been CONFIRMED. Please arrive 15 minutes early. - Dental Clinic',
+            'Good day, %s! Your appointment at %s on %s for %s has been CONFIRMED. Please arrive 15 minutes early. - '.config('app.name', 'Dental Clinic'),
             $appointment->patient->name,
             $slot,
             $date,
             $appointment->service_type
         );
+
+        return $this->send($phone, $message);
+    }
+
+    /**
+     * Acknowledge a newly booked appointment while it is still Pending.
+     */
+    public function sendBookingAcknowledgment(Appointment $appointment): ?SmsLog
+    {
+        return $this->notifyPatient($appointment, sprintf(
+            'Good day, %s! We received your booking request for %s (%s) on %s at %s. It is now PENDING confirmation by the clinic. - '.config('app.name', 'Dental Clinic'),
+            $appointment->patient?->name,
+            $appointment->service_type,
+            $appointment->dentist?->name ?? 'any available dentist',
+            $appointment->appointment_date?->format('M d, Y'),
+            $appointment->formatted_slot
+        ));
+    }
+
+    /**
+     * Notify the patient that an appointment was cancelled.
+     */
+    public function sendCancellationNotice(Appointment $appointment): ?SmsLog
+    {
+        return $this->notifyPatient($appointment, sprintf(
+            'Good day, %s! Your %s appointment on %s at %s has been CANCELLED. You may book again anytime through our online system. - '.config('app.name', 'Dental Clinic'),
+            $appointment->patient?->name,
+            $appointment->service_type,
+            $appointment->appointment_date?->format('M d, Y'),
+            $appointment->formatted_slot
+        ));
+    }
+
+    /**
+     * Day-before reminder for confirmed appointments (used by sms:send-reminders).
+     */
+    public function sendDayBeforeReminder(Appointment $appointment): ?SmsLog
+    {
+        return $this->notifyPatient($appointment, sprintf(
+            'Reminder from '.config('app.name', 'Dental Clinic').': %s, you have a %s appointment tomorrow, %s at %s. Please arrive 15 minutes early. - '.config('app.name', 'Dental Clinic'),
+            $appointment->patient?->name,
+            $appointment->service_type,
+            $appointment->appointment_date?->format('M d, Y'),
+            $appointment->formatted_slot
+        ));
+    }
+
+    /** Shared guard: skip silently when the patient has no contact number. */
+    protected function notifyPatient(Appointment $appointment, string $message): ?SmsLog
+    {
+        $phone = $appointment->patient?->contact_no;
+
+        if (empty($phone)) {
+            Log::info('[SMS] Skipped notification: patient has no contact number.', [
+                'appointment_id' => $appointment->id,
+            ]);
+
+            return null;
+        }
 
         return $this->send($phone, $message);
     }

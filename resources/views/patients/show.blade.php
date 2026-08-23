@@ -7,6 +7,9 @@
         <a href="{{ route('patients.index') }}" class="btn btn-outline-secondary btn-sm">
             <i class="bi bi-arrow-left me-1"></i>Back to Patients
         </a>
+        <a href="{{ route('patients.history.print', $patient) }}" target="_blank" class="btn btn-outline-primary btn-sm">
+            <i class="bi bi-printer me-1"></i>Print Diagnostic History
+        </a>
     </div>
 
     <div class="row g-4">
@@ -62,6 +65,7 @@
                                     <th>Dentist</th>
                                     <th>Status</th>
                                     <th>Treatment</th>
+                                    <th>Reseta</th>
                                     @if(auth()->user()->isDentist())<th class="no-print">Actions</th>@endif
                                 </tr>
                             </thead>
@@ -86,6 +90,15 @@
                                                 <span class="text-muted small">—</span>
                                             @endif
                                         </td>
+                                        <td>
+                                            @if($appt->prescriptions->isNotEmpty())
+                                                <a href="{{ route('prescriptions.print', $appt->prescriptions->first()) }}" target="_blank" class="btn btn-sm btn-link p-0">
+                                                    <i class="bi bi-file-earmark-text me-1"></i>{{ $appt->prescriptions->count() }} Rx
+                                                </a>
+                                            @else
+                                                <span class="text-muted small">—</span>
+                                            @endif
+                                        </td>
                                         @if(auth()->user()->isDentist())
                                             <td class="no-print">
                                                 <button type="button" class="btn btn-sm btn-outline-primary"
@@ -103,7 +116,7 @@
                                     </tr>
                                 @empty
                                     <tr>
-                                        <td colspan="6" class="text-center text-muted py-4">
+                                        <td colspan="7" class="text-center text-muted py-4">
                                             <i class="bi bi-calendar-x d-block fs-3 mb-2"></i>
                                             No consultations recorded yet.
                                         </td>

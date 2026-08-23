@@ -4,6 +4,7 @@ namespace Database\Seeders;
 
 use App\Models\Appointment;
 use App\Models\PatientProfile;
+use App\Models\Prescription;
 use App\Models\SmsLog;
 use App\Models\TreatmentRecord;
 use App\Models\User;
@@ -36,13 +37,18 @@ class DatabaseSeeder extends Seeder
         ]);
 
         $dentists = [];
-        foreach (['Elena Rodriguez', 'Miguel Bautista'] as $i => $name) {
+        $dentistData = [
+            ['Elena Rodriguez', '0072145'],
+            ['Miguel Bautista', '0089332'],
+        ];
+        foreach ($dentistData as $i => [$name, $license]) {
             $dentists[] = User::create([
                 'name' => $name,
                 'email' => 'dentist'.($i + 1).'@clinic.test',
                 'password' => $password,
                 'contact_no' => '0917'.str_pad((string) (3000000 + $i * 111111), 7, '0', STR_PAD_LEFT),
                 'role' => User::ROLE_DENTIST,
+                'license_no' => $license,
             ]);
         }
 
@@ -132,6 +138,51 @@ class DatabaseSeeder extends Seeder
                 'treatment_details' => $details,
                 'clinical_notes' => $notes,
             ]);
+        }
+
+        // ------------------------------------------------------------------
+        // e-Prescriptions for two of the completed consultations
+        // ------------------------------------------------------------------
+        $prescriptionData = [
+            1 => [ // Bryan Reyes — post-extraction medication
+                'diagnosis' => 'Dental caries; non-restorable lower right first molar.',
+                'notes' => 'Return immediately if persistent bleeding or fever occurs.',
+                'items' => [
+                    ['Amoxicillin 500mg', '500 mg', '3x a day', '7 days', '21 capsules', 'Take 1 capsule three times daily after meals.'],
+                    ['Mefenamic Acid 500mg', '500 mg', 'every 6 hours, as needed', '5 days', '15 tablets', 'Take only when pain is felt. Take after meals.'],
+                ],
+            ],
+            0 => [ // Ana Villanueva — mild gingivitis
+                'diagnosis' => 'Mild chronic gingivitis.',
+                'notes' => 'Follow-up checkup after 2 weeks. Observe proper oral hygiene.',
+                'items' => [
+                    ['Chlorhexidine Mouthwash', '10 mL', '2x a day', '14 days', '1 bottle', 'Rinse for 30 seconds after brushing, morning and evening. Do not swallow.'],
+                ],
+            ],
+        ];
+
+        foreach ($prescriptionData as $index => $rx) {
+            $appt = $createdAppointments[$index];
+
+            $prescription = Prescription::create([
+                'patient_id' => $appt->patient_id,
+                'dentist_id' => $appt->dentist_id,
+                'appointment_id' => $appt->id,
+                'diagnosis' => $rx['diagnosis'],
+                'notes' => $rx['notes'],
+                'date_issued' => $appt->appointment_date,
+            ]);
+
+            foreach ($rx['items'] as [$drug, $dosage, $frequency, $duration, $quantity, $instructions]) {
+                $prescription->items()->create([
+                    'drug_name' => $drug,
+                    'dosage' => $dosage,
+                    'frequency' => $frequency,
+                    'duration' => $duration,
+                    'quantity' => $quantity,
+                    'instructions' => $instructions,
+                ]);
+            }
         }
 
         // ------------------------------------------------------------------

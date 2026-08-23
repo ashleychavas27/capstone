@@ -62,9 +62,25 @@ class PatientController extends Controller
     {
         abort_unless($user->isPatient(), 404, 'Patient not found.');
 
-        $user->load(['patientProfile', 'patientAppointments' => fn ($q) => $q->with(['dentist', 'treatmentRecord'])->orderByDesc('appointment_date')->orderBy('time_slot')]);
+        $user->load(['patientProfile', 'patientAppointments' => fn ($q) => $q->with(['dentist', 'treatmentRecord', 'prescriptions'])->orderByDesc('appointment_date')->orderBy('time_slot')]);
 
         return view('patients.show', ['patient' => $user]);
+    }
+
+    /**
+     * Printable diagnostic / treatment history summary.
+     */
+    public function printHistory(User $user): View
+    {
+        abort_unless($user->isPatient(), 404, 'Patient not found.');
+
+        $appointments = $user->patientAppointments()
+            ->with(['dentist', 'treatmentRecord', 'prescriptions.items'])
+            ->orderByDesc('appointment_date')
+            ->orderByDesc('time_slot')
+            ->get();
+
+        return view('patients.history-print', ['patient' => $user, 'appointments' => $appointments]);
     }
 
     /**

@@ -33,6 +33,16 @@ class AuthController extends Controller
                 ->onlyInput('email');
         }
 
+        // Deactivated staff accounts may no longer sign in.
+        if (! Auth::user()->isActive()) {
+            Auth::logout();
+            $request->session()->invalidate();
+
+            return back()
+                ->withErrors(['email' => 'This account has been deactivated. Please contact the clinic owner.'])
+                ->onlyInput('email');
+        }
+
         $request->session()->regenerate();
 
         return redirect()->intended(route('dashboard'))

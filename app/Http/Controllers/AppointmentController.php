@@ -17,6 +17,72 @@ use Illuminate\View\View;
 class AppointmentController extends Controller
 {
     /**
+     * Calendar view of the schedule (Owner / Secretary see all; Dentist sees own).
+     */
+    public function calendar(): View
+    {
+        $dentists = User::where('role', User::ROLE_DENTIST)->orderBy('name')->get();
+
+        return view('appointments.calendar', [
+            'dentists' => $dentists,
+            'canManage' => Auth::user()->isStaff() && ! Auth::user()->isDentist(),
+            'filterToSelf' => Auth::user()->isDentist(),
+        ]);
+    }
+
+    /**
+     * JSON event feed for FullCalendar.
+     */
+    public function calendarEvents(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'start' => ['nullable', 'date'],
+            'end' => ['nullable', 'date'],
+            'dentist_id' => ['nullable', Rule::exists('users', 'id')->where('role', User::ROLE_DENTIST)],
+        ]);
+
+        $query = Appointment::with(['patient', 'dentist']);
+
+        if ($request->filled('start')) {
+            $query->whereDate('appointment_date', '>=', $data['start']);
+        }
+
+        if ($request->filled('end')) {
+            $query->whereDate('appointment_date', '<=', $data['end']);
+        }
+
+        // Dentists only ever see their own schedule.
+        if (Auth::user()->isDentist()) {
+            $query->where('dentist_id', Auth::id());
+        } elseif (! empty($data['dentist_id'])) {
+            $query->where('dentist_id', $data['dentist_id']);
+        }
+
+        $events = $query->get()->map(fn (Appointment $a) => [
+            'id' => $a->id,
+            'title' => sprintf('%s · %s', $a->formatted_slot, e($a->patient?->name ?? 'Patient')),
+            'start' => $a->appointment_date->toDateString().' '.$a->time_slot,
+            'backgroundColor' => match ($a->status) {
+                Appointment::STATUS_PENDING => '#D1987F',
+                Appointment::STATUS_CONFIRMED => '#C89B27',
+                Appointment::STATUS_COMPLETED => '#B4B1B2',
+                default => '#9A8F8E',
+            },
+            'borderColor' => '#FFFFFF',
+            'textColor' => in_array($a->status, [Appointment::STATUS_PENDING, Appointment::STATUS_CONFIRMED]) ? '#3D3428' : '#FFFFFF',
+            'extendedProps' => [
+                'patient' => e($a->patient?->name ?? '—'),
+                'dentist' => e($a->dentist?->name ?? 'Unassigned'),
+                'service_type' => e($a->service_type),
+                'time_slot' => $a->formatted_slot,
+                'status' => $a->status,
+            ],
+        ]);
+
+        return response()->json($events);
+    }
+
+    /**
      * Staff schedule management (Page 3, staff side).
      */
     public function index(): View
@@ -178,6 +244,9 @@ class AppointmentController extends Controller
             throw $e;
         }
 
+        // Notify the patient that the booking request was received (Pending SMS).
+        $sms = app(SmsService::class)->sendBookingAcknowledgment($appointment);
+
         return response()->json([
             'message' => 'Appointment booked successfully! You will receive an SMS once it is confirmed by the clinic.',
             'appointment' => [
@@ -203,11 +272,16 @@ class AppointmentController extends Controller
         ]);
 
         $wasConfirmed = $appointment->status === Appointment::STATUS_CONFIRMED;
+        $wasCancelled = $appointment->status === Appointment::STATUS_CANCELLED;
         $appointment->update(['status' => $data['status']]);
 
         $sms = null;
         if ($data['status'] === Appointment::STATUS_CONFIRMED && ! $wasConfirmed) {
             $sms = app(SmsService::class)->sendAppointmentConfirmation($appointment);
+        }
+
+        if ($data['status'] === Appointment::STATUS_CANCELLED && ! $wasCancelled) {
+            $sms = app(SmsService::class)->sendCancellationNotice($appointment);
         }
 
         return response()->json([
@@ -218,10 +292,15 @@ class AppointmentController extends Controller
     }
 
     /**
-     * Staff cancels / removes an appointment.
+     * Staff cancels / removes an appointment. Sends a cancellation SMS first
+     * so the patient is informed before the record is removed.
      */
     public function destroy(Appointment $appointment): JsonResponse
     {
+        if ($appointment->status !== Appointment::STATUS_CANCELLED) {
+            app(SmsService::class)->sendCancellationNotice($appointment);
+        }
+
         $appointment->delete();
 
         return response()->json(['message' => 'Appointment removed.']);

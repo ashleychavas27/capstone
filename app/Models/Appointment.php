@@ -5,6 +5,7 @@ namespace App\Models;
 use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 
 class Appointment extends Model
@@ -115,6 +116,11 @@ class Appointment extends Model
     public function treatmentRecord(): HasOne
     {
         return $this->hasOne(TreatmentRecord::class, 'appointment_id');
+    }
+
+    public function prescriptions(): HasMany
+    {
+        return $this->hasMany(Prescription::class, 'appointment_id');
     }
 
     /** Formatted slot, e.g. "09:00" -> "09:00 AM". */

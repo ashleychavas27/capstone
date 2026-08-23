@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>Diagnostic History · {{ $patient->name }}</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        body {
+            background: #FAF7F5;
+            font-family: 'Segoe UI', system-ui, sans-serif;
+            font-size: .85rem;
+        }
+
+        .sheet {
+            max-width: 900px;
+            margin: 2rem auto;
+            background: #fff;
+            border: 1px solid #B4B1B2;
+            padding: 2.5rem 3rem;
+        }
+
+        .clinic-name {
+            font-family: Georgia, 'Times New Roman', serif;
+            color: #736261;
+        }
+
+        h6.section { color: #736261; border-bottom: 1px solid #B4B1B2; padding-bottom: .25rem; }
+
+        @media print {
+            body { background: #fff; }
+            .sheet { border: none; margin: 0; max-width: none; padding: 0; }
+            .no-print { display: none !important; }
+        }
+    </style>
+</head>
+<body>
+    <div class="text-end mb-3 no-print" style="max-width: 900px; margin-inline: auto;">
+        <a href="{{ route('patients.show', $patient) }}" class="btn btn-sm btn-outline-secondary">Back</a>
+        <button onclick="window.print()" class="btn btn-sm btn-primary">
+            <i class="bi bi-printer me-1"></i>Print
+        </button>
+    </div>
+
+    <div class="sheet">
+        <div class="d-flex align-items-center gap-3 pb-3 mb-4" style="border-bottom: 2px solid #C89B27;">
+            <img src="{{ asset('logo.png') }}" alt="Logo" style="width: 78px; height: 78px; object-fit: contain;">
+            <div>
+                <h4 class="clinic-name fw-bold mb-0">{{ config('app.name', 'Dental Clinic') }}</h4>
+                <div class="text-muted small">Patient Diagnostic &amp; Treatment History</div>
+                <div class="text-muted small">Printed on {{ now()->format('M d, Y · h:i A') }}</div>
+            </div>
+        </div>
+
+        {{-- Patient information --}}
+        <h6 class="section fw-bold mb-3">PATIENT INFORMATION</h6>
+        <div class="row mb-4">
+            <div class="col-4"><strong>Name:</strong> {{ $patient->name }}</div>
+            <div class="col-2"><strong>Age:</strong> {{ $patient->patientProfile?->age ?? '—' }}</div>
+            <div class="col-3"><strong>Contact:</strong> {{ $patient->contact_no ?? '—' }}</div>
+            <div class="col-3"><strong>Email:</strong> {{ $patient->email }}</div>
+            <div class="col-12 mt-1"><strong>Address:</strong> {{ $patient->patientProfile?->address ?? '—' }}</div>
+            <div class="col-12 mt-1"><strong>Medical history:</strong> {{ $patient->patientProfile?->medical_history ?: 'None recorded.' }}</div>
+        </div>
+
+        {{-- Consultation history --}}
+        <h6 class="section fw-bold mb-3">CONSULTATION &amp; TREATMENT RECORDS ({{ $appointments->count() }})</h6>
+
+        @forelse($appointments as $appt)
+            <div class="mb-3 pb-2" style="border-bottom: 1px dashed #B4B1B2;">
+                <div class="d-flex justify-content-between flex-wrap">
+                    <span><strong>{{ $appt->appointment_date->format('M d, Y') }} · {{ $appt->formatted_slot }}</strong> — {{ $appt->service_type }}</span>
+                    <span class="text-muted">Dentist: {{ $appt->dentist?->name ?? '—' }} · {{ $appt->status }}</span>
+                </div>
+                @if($appt->treatmentRecord)
+                    <div class="mt-1 ps-3" style="border-left: 3px solid #C89B27;">
+                        <strong>Treatment:</strong> {{ $appt->treatmentRecord->treatment_details }}
+                        @if($appt->treatmentRecord->clinical_notes)
+                            <br><strong>Clinical notes:</strong> {{ $appt->treatmentRecord->clinical_notes }}
+                        @endif
+                    </div>
+                @endif
+                @if($appt->prescriptions->isNotEmpty())
+                    @foreach($appt->prescriptions as $rx)
+                        <div class="mt-1 ps-3 small" style="border-left: 3px solid #D1987F;">
+                            <strong>Reseta ({{ $rx->date_issued->format('M d, Y') }}):</strong> {{ $rx->diagnosis }}
+                            @foreach($rx->items as $item)
+                                <br>&nbsp;&nbsp;&bull; {{ $item->drug_name }}
+                                {{ collect([$item->dosage, $item->frequency])->filter()->implode(' · ') }}
+                                @if($item->instructions) — Sig: {{ $item->instructions }}@endif
+                            @endforeach
+                        </div>
+                    @endforeach
+                @endif
+            </div>
+        @empty
+            <p class="text-muted">No consultations recorded yet.</p>
+        @endforelse
+
+        <div class="text-center text-muted small mt-4">
+            End of report · Generated by {{ config('app.name', 'Dental Clinic') }} Online Records &amp; Appointment System
+        </div>
+    </div>
+</body>
+</html>

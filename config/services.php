@@ -48,4 +48,15 @@ return [
         'endpoint' => env('SMS_ENDPOINT', 'https://api.etextmo.com/api/send-message'),
     ],
 
+    /*
+    |--------------------------------------------------------------------------
+    | Chat bot (Google Gemini)
+    |--------------------------------------------------------------------------
+    | GEMINI_API_KEY enables AI-powered replies; without it the chat bot
+    | falls back to built-in offline keyword answers.
+    */
+    'gemini' => [
+        'api_key' => env('GEMINI_API_KEY', ''),
+    ],
+
 ];

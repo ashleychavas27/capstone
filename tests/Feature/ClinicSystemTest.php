@@ -127,11 +127,11 @@ class ClinicSystemTest extends TestCase
     {
         $patient = $this->makePatient();
         $dentist = $this->makeUser(User::ROLE_DENTIST);
-        $this->makeAppointment($patient, $dentist, '2026-08-20', '09:00', Appointment::STATUS_CONFIRMED);
+        $this->makeAppointment($patient, $dentist, '2027-01-20', '09:00', Appointment::STATUS_CONFIRMED);
 
         $response = $this->actingAs($patient)->postJson('/appointments/book', [
             'dentist_id' => $dentist->id,
-            'appointment_date' => '2026-08-20',
+            'appointment_date' => '2027-01-20',
             'time_slot' => '09:00',
             'service_type' => 'General Checkup',
         ]);
@@ -147,7 +147,7 @@ class ClinicSystemTest extends TestCase
 
         $response = $this->actingAs($patient)->postJson('/appointments/book', [
             'dentist_id' => $dentist->id,
-            'appointment_date' => '2026-08-20',
+            'appointment_date' => '2027-01-20',
             'time_slot' => '10:00',
             'service_type' => 'General Checkup',
         ]);
@@ -165,15 +165,15 @@ class ClinicSystemTest extends TestCase
     {
         $patient = $this->makePatient();
         $dentist = $this->makeUser(User::ROLE_DENTIST);
-        $this->makeAppointment($patient, $dentist, '2026-08-20', '11:00');
+        $this->makeAppointment($patient, $dentist, '2027-01-20', '11:00');
 
-        $response = $this->actingAs($patient)->getJson('/appointments/available-slots?dentist_id='.$dentist->id.'&date=2026-08-20');
+        $response = $this->actingAs($patient)->getJson('/appointments/available-slots?dentist_id='.$dentist->id.'&date=2027-01-20');
 
         $response->assertOk();
 
         $slots = $response->json('slots');
         $this->assertNotContains('11:00', $slots);
-        $this->assertSame(Appointment::freeSlots($dentist->id, '2026-08-20'), $slots);
+        $this->assertSame(Appointment::freeSlots($dentist->id, '2027-01-20'), $slots);
     }
 
     // ------------------------------------------------------------------
@@ -184,7 +184,7 @@ class ClinicSystemTest extends TestCase
     {
         $patient = $this->makePatient();
         $dentist = $this->makeUser(User::ROLE_DENTIST);
-        $appointment = $this->makeAppointment($patient, $dentist, '2026-08-20', '09:30');
+        $appointment = $this->makeAppointment($patient, $dentist, '2027-01-20', '09:30');
         $owner = $this->makeUser(User::ROLE_OWNER);
 
         $response = $this->actingAs($owner)->patchJson("/appointments/{$appointment->id}/status", [
@@ -208,7 +208,7 @@ class ClinicSystemTest extends TestCase
     {
         $patient = $this->makePatient();
         $dentist = $this->makeUser(User::ROLE_DENTIST);
-        $appointment = $this->makeAppointment($patient, $dentist, '2026-08-20', '13:00', Appointment::STATUS_CONFIRMED);
+        $appointment = $this->makeAppointment($patient, $dentist, '2027-01-20', '13:00', Appointment::STATUS_CONFIRMED);
         $owner = $this->makeUser(User::ROLE_OWNER);
 
         $response = $this->actingAs($owner)->patchJson("/appointments/{$appointment->id}/status", [
@@ -227,7 +227,7 @@ class ClinicSystemTest extends TestCase
     {
         $patient = $this->makePatient();
         $dentist = $this->makeUser(User::ROLE_DENTIST);
-        $appointment = $this->makeAppointment($patient, $dentist, '2026-08-20', '14:00', Appointment::STATUS_CONFIRMED);
+        $appointment = $this->makeAppointment($patient, $dentist, '2027-01-20', '14:00', Appointment::STATUS_CONFIRMED);
 
         $response = $this->actingAs($dentist)->post("/patients/{$patient->id}/treatment", [
             'appointment_id' => $appointment->id,
@@ -251,7 +251,7 @@ class ClinicSystemTest extends TestCase
     {
         $patient = $this->makePatient();
         $dentist = $this->makeUser(User::ROLE_DENTIST);
-        $appointment = $this->makeAppointment($patient, $dentist, '2026-08-20', '14:30');
+        $appointment = $this->makeAppointment($patient, $dentist, '2027-01-20', '14:30');
         $secretary = $this->makeUser(User::ROLE_SECRETARY);
 
         $response = $this->actingAs($secretary)->post("/patients/{$patient->id}/treatment", [
@@ -325,7 +325,7 @@ class ClinicSystemTest extends TestCase
         $patient = $this->makePatient();
         $patient->update(['name' => 'Pat<img src=x onerror=x>']);
         $dentist = $this->makeUser(User::ROLE_DENTIST);
-        $this->makeAppointment($patient, $dentist, '2026-08-25', '09:00');
+        $this->makeAppointment($patient, $dentist, '2027-01-25', '09:00');
 
         $response = $this->actingAs($this->makeUser(User::ROLE_OWNER))->getJson('/appointments/data');
 
@@ -343,7 +343,7 @@ class ClinicSystemTest extends TestCase
         $response = $this->actingAs($secretary)->post('/appointments', [
             'patient_id' => $patient->id,
             'dentist_id' => $owner->id, // Owner is not a Dentist
-            'appointment_date' => '2026-08-25',
+            'appointment_date' => '2027-01-25',
             'time_slot' => '09:00',
             'service_type' => 'Filling',
         ]);
@@ -359,7 +359,7 @@ class ClinicSystemTest extends TestCase
 
         $response = $this->actingAs($secretary)->postJson('/appointments/book', [
             'dentist_id' => $dentist->id,
-            'appointment_date' => '2026-08-25',
+            'appointment_date' => '2027-01-25',
             'time_slot' => '09:00',
             'service_type' => 'General Checkup',
             'patient_id' => $dentist->id, // dentists cannot be booked as patients
@@ -377,13 +377,13 @@ class ClinicSystemTest extends TestCase
     {
         $patient = $this->makePatient();
         $dentist = $this->makeUser(User::ROLE_DENTIST);
-        $this->makeAppointment($patient, $dentist, '2026-08-21', '09:00');
+        $this->makeAppointment($patient, $dentist, '2027-01-21', '09:00');
         $secretary = $this->makeUser(User::ROLE_SECRETARY);
 
         $response = $this->actingAs($secretary)->post('/appointments', [
             'patient_id' => $patient->id,
             'dentist_id' => $dentist->id,
-            'appointment_date' => '2026-08-21',
+            'appointment_date' => '2027-01-21',
             'time_slot' => '09:00',
             'service_type' => 'Filling',
         ]);
