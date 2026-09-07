@@ -2,6 +2,81 @@
 
 @section('title', 'Book an Appointment')
 
+@push('styles')
+    <style>
+        /* ------------------------------------------------------------------
+           Passport-style availability calendar (green = available, red = full)
+           ------------------------------------------------------------------ */
+        .booking-calendar { background: #fff; }
+
+        .cal-weekdays {
+            font-size: .7rem;
+            font-weight: 700;
+            letter-spacing: .05em;
+            text-transform: uppercase;
+            color: var(--gold-dark);
+        }
+
+        .cal-day {
+            aspect-ratio: 1 / 1;
+            width: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: .5rem;
+            font-size: .85rem;
+            font-weight: 600;
+            border: 1px solid transparent;
+            background: transparent;
+            color: #C4BBB9;
+            cursor: default;
+            padding: 0;
+        }
+
+        .cal-day.available {
+            background: #E4F5E4;
+            color: #1E7B34;
+            border-color: #BFE6C6;
+            cursor: pointer;
+        }
+
+        .cal-day.available:hover { background: #D2EED4; }
+
+        .cal-day.full {
+            background: #FCE8E8;
+            color: #C0392B;
+            border-color: #F5CFCF;
+        }
+
+        .cal-day.selected {
+            background: var(--gold);
+            color: #fff;
+            border-color: var(--gold);
+            box-shadow: 0 2px 6px rgba(200, 155, 39, .35);
+        }
+
+        .cal-day:focus-visible { outline: 2px solid var(--gold); outline-offset: 1px; }
+
+        .legend-pill {
+            display: inline-flex;
+            align-items: center;
+            gap: .35rem;
+            padding: .2rem .6rem;
+            border-radius: 2rem;
+            font-size: .72rem;
+            font-weight: 600;
+        }
+
+        .legend-pill .dot { width: 8px; height: 8px; border-radius: 50%; }
+
+        .legend-pill.available { background: #E4F5E4; color: #1E7B34; }
+        .legend-pill.available .dot { background: #2E9E4F; }
+
+        .legend-pill.full { background: #FCE8E8; color: #C0392B; }
+        .legend-pill.full .dot { background: #D64541; }
+    </style>
+@endpush
+
 @section('content')
     <div class="row justify-content-center">
         <div class="col-lg-10">
@@ -110,9 +185,27 @@
                                 <div class="row g-3 mt-1">
                                     <div class="col-md-6">
                                         <label for="appointment_date" class="form-label"><span class="fw-semibold">3.</span> Date <span class="text-danger">*</span></label>
-                                        <input type="date" class="form-control" id="appointment_date" name="appointment_date"
-                                               min="{{ now()->toDateString() }}" max="{{ now()->addMonths(2)->toDateString() }}" required>
-                                        <div class="form-text">
+
+                                        {{-- Passport-style calendar: green = available, red = fully booked --}}
+                                        <div class="booking-calendar border rounded p-3">
+                                            <div class="d-flex align-items-center justify-content-between mb-2">
+                                                <button type="button" class="btn btn-sm btn-outline-secondary" id="calPrev" aria-label="Previous month"><i class="bi bi-chevron-left"></i></button>
+                                                <div class="fw-semibold text-center" id="calMonthLabel">—</div>
+                                                <button type="button" class="btn btn-sm btn-outline-secondary" id="calNext" aria-label="Next month"><i class="bi bi-chevron-right"></i></button>
+                                            </div>
+                                            <div class="row g-0 text-center cal-weekdays mb-1" id="calWeekdays"></div>
+                                            <div class="row g-0 text-center" id="calGrid" role="grid" aria-label="Available appointment dates"></div>
+                                            <div class="d-flex gap-2 mt-3 small">
+                                                <span class="legend-pill available"><span class="dot"></span>Available</span>
+                                                <span class="legend-pill full"><span class="dot"></span>Fully Booked</span>
+                                            </div>
+                                            <div class="form-text mt-2" id="earliestHint">
+                                                <i class="bi bi-info-circle me-1"></i>Select a dentist to see available dates.
+                                            </div>
+                                        </div>
+
+                                        <input type="hidden" id="appointment_date" name="appointment_date" required>
+                                        <div class="form-text mt-1">
                                             Clinic hours: Mon–Sat, 9:00 AM – 5:00 PM
                                             <span class="text-muted">(closed Sundays · lunch break 12–1 PM)</span>
                                         </div>
@@ -557,8 +650,135 @@
         checkReady();
     });
 
-    dentistSelect.addEventListener('change', refreshSlots);
-    dateInput.addEventListener('change', refreshSlots);
+    // ------------------------------------------------------------------
+    // Passport-style availability calendar
+    // ------------------------------------------------------------------
+    const bookNow = new Date();
+    const calGrid = document.getElementById('calGrid');
+    const calMonthLabel = document.getElementById('calMonthLabel');
+    const calPrev = document.getElementById('calPrev');
+    const calNext = document.getElementById('calNext');
+    const earliestHint = document.getElementById('earliestHint');
+    const WEEKDAYS = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'];
+    let calMonth = new Date(bookNow.getFullYear(), bookNow.getMonth(), 1);
+    let calData = null;
+
+    const minBookMonth = () => new Date(bookNow.getFullYear(), bookNow.getMonth(), 1);
+    const maxBookMonth = () => new Date(bookNow.getFullYear(), bookNow.getMonth() + 2, 1);
+    const monthKey = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+    const dayDate = (d, day) => `${monthKey(d)}-${String(day).padStart(2, '0')}`;
+
+    document.getElementById('calWeekdays').innerHTML = WEEKDAYS.map(w => `<div class="col">${w}</div>`).join('');
+
+    async function loadCalendar() {
+        if (!dentistSelect.value) {
+            calMonthLabel.textContent = '—';
+            calData = null;
+            calGrid.innerHTML = '<div class="col-12 text-muted small py-3"><i class="bi bi-info-circle me-1"></i>Select a dentist first to see available dates.</div>';
+            earliestHint.innerHTML = '<i class="bi bi-info-circle me-1"></i>Select a dentist to see available dates.';
+            return;
+        }
+
+        calMonthLabel.textContent = calMonth.toLocaleDateString([], { month: 'long', year: 'numeric' });
+        calPrev.disabled = monthKey(calMonth) <= monthKey(minBookMonth());
+        calNext.disabled = monthKey(calMonth) >= monthKey(maxBookMonth());
+        calGrid.innerHTML = '<div class="col-12 text-center text-muted small py-3"><span class="spinner-border spinner-border-sm me-2"></span>Checking availability…</div>';
+
+        try {
+            const params = new URLSearchParams({ dentist_id: dentistSelect.value, month: monthKey(calMonth) });
+            const res = await apiFetch(`{{ route('appointments.month-availability') }}?${params}`);
+            calData = res;
+            renderCalendar(res);
+        } catch (e) {
+            calGrid.innerHTML = `<div class="col-12 text-danger small py-3"><i class="bi bi-exclamation-triangle me-1"></i>${e.message}</div>`;
+        }
+    }
+
+    function renderCalendar(data) {
+        const firstDay = new Date(calMonth.getFullYear(), calMonth.getMonth(), 1);
+        const daysInMonth = new Date(calMonth.getFullYear(), calMonth.getMonth() + 1, 0).getDate();
+        const lead = firstDay.getDay();
+        const byDate = {};
+        data.days.forEach(d => { byDate[d.date] = d; });
+
+        let html = '';
+        for (let i = 0; i < lead; i++) {
+            html += '<div class="col" aria-hidden="true"></div>';
+        }
+        for (let day = 1; day <= daysInMonth; day++) {
+            const date = dayDate(calMonth, day);
+            const status = byDate[date]?.status ?? 'unavailable';
+            let attrs = 'disabled aria-disabled="true"';
+            if (status === 'available') {
+                attrs = `role="gridcell" tabindex="0" data-date="${date}" aria-label="Available on ${date}"`;
+            }
+            html += `<div class="col"><button type="button" class="cal-day ${status}" ${attrs}>${day}</button></div>`;
+        }
+        calGrid.innerHTML = html;
+
+        // Passport-style earliest-available hint
+        if (data.earliest_available) {
+            const e = new Date(data.earliest_available + 'T00:00');
+            earliestHint.innerHTML = `<i class="bi bi-calendar-check me-1"></i><strong>Earliest available appointment:</strong> ${e.toLocaleDateString([], { day: 'numeric', month: 'long', year: 'numeric' })}`;
+        } else {
+            earliestHint.innerHTML = '<i class="bi bi-calendar-x me-1"></i>No available slots within the booking window.';
+        }
+
+        // Re-mark the selected day if it belongs to this month
+        if (dateInput.value && byDate[dateInput.value]) {
+            calGrid.querySelector(`[data-date="${dateInput.value}"]`)?.classList.add('selected');
+        }
+    }
+
+    function selectCalendarDay(date) {
+        dateInput.value = date;
+        calGrid.querySelectorAll('.cal-day.selected').forEach(el => el.classList.remove('selected'));
+        calGrid.querySelector(`[data-date="${date}"]`)?.classList.add('selected');
+        refreshSummary();
+        refreshSlots();
+    }
+
+    function clearCalendarSelection() {
+        dateInput.value = '';
+        calGrid.querySelectorAll('.cal-day.selected').forEach(el => el.classList.remove('selected'));
+    }
+
+    calGrid.addEventListener('click', (e) => {
+        const btn = e.target.closest('.cal-day.available');
+        if (!btn) return;
+        selectCalendarDay(btn.dataset.date);
+    });
+
+    calGrid.addEventListener('keydown', (e) => {
+        if (e.key !== 'Enter' && e.key !== ' ') return;
+        const btn = e.target.closest('.cal-day.available');
+        if (btn) { e.preventDefault(); selectCalendarDay(btn.dataset.date); }
+    });
+
+    calPrev.addEventListener('click', () => {
+        if (monthKey(calMonth) <= monthKey(minBookMonth())) return;
+        calMonth = new Date(calMonth.getFullYear(), calMonth.getMonth() - 1, 1);
+        loadCalendar();
+    });
+
+    calNext.addEventListener('click', () => {
+        if (monthKey(calMonth) >= monthKey(maxBookMonth())) return;
+        calMonth = new Date(calMonth.getFullYear(), calMonth.getMonth() + 1, 1);
+        loadCalendar();
+    });
+
+    // Changing the dentist (the "site" selector) reloads the whole calendar.
+    dentistSelect.addEventListener('change', () => {
+        clearCalendarSelection();
+        slotsArea.innerHTML = '<p class="text-muted small mb-0 py-1"><i class="bi bi-info-circle me-1"></i>Select a dentist and date to see available slots.</p>';
+        calMonth = minBookMonth();
+        loadCalendar();
+        refreshSummary();
+        checkReady();
+    });
+
+    // Show the calendar once the page is ready (falls back to the dentist hint).
+    loadCalendar();
 
     // Submit booking via AJAX — inline success instead of page reload.
     bookingForm.addEventListener('submit', async (e) => {
@@ -613,6 +833,8 @@
         ['service', 'dentist', 'date', 'time'].forEach(updateSummaryBlank);
         if (typeof selectPatient === 'function') selectPatient(null);
         if (document.querySelector('[data-summary="patient"]')) updateSummary('patient', '—');
+        clearCalendarSelection();
+        loadCalendar();
     }
     function updateSummaryBlank(key) { updateSummary(key, '—'); }
 </script>

@@ -8,6 +8,7 @@ use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\PatientController;
 use App\Http\Controllers\PrescriptionController;
 use App\Http\Controllers\ProfileController;
+use App\Http\Controllers\RecordController;
 use App\Http\Controllers\SmsController;
 use Illuminate\Support\Facades\Route;
 
@@ -43,7 +44,14 @@ Route::middleware('auth')->group(function () {
     // Page 3 (patient side): online booking with real-time availability
     Route::get('/appointments/book', [AppointmentController::class, 'bookForm'])->name('appointments.book');
     Route::get('/appointments/available-slots', [AppointmentController::class, 'availableSlots'])->name('appointments.available-slots');
+    Route::get('/appointments/month-availability', [AppointmentController::class, 'monthAvailability'])->name('appointments.month-availability');
     Route::post('/appointments/book', [AppointmentController::class, 'book'])->name('appointments.book.store');
+
+    // Patient self-service: diagnostic history & e-prescriptions
+    Route::middleware('role:Patient')->group(function () {
+        Route::get('/my-records', [RecordController::class, 'index'])->name('records.index');
+        Route::get('/my-records/prescriptions/{prescription}/print', [RecordController::class, 'printPrescription'])->name('records.prescription.print');
+    });
 
     // Chat bot assistant
     Route::post('/chatbot', [ChatController::class, 'send'])->name('chatbot.send');

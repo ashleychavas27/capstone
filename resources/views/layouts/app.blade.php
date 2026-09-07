@@ -442,6 +442,14 @@
                             <i class="bi bi-calendar-plus me-1"></i>Book Appointment
                         </a>
                     </li>
+
+                    @if(auth()->user()->isPatient())
+                        <li class="nav-item">
+                            <a class="nav-link {{ request()->routeIs('records.*') ? 'active' : '' }}" href="{{ route('records.index') }}">
+                                <i class="bi bi-journal-medical me-1"></i>My Records
+                            </a>
+                        </li>
+                    @endif
                 </ul>
 
                 <ul class="navbar-nav ms-lg-0 mt-2 mt-lg-0 align-items-lg-center">
@@ -643,14 +651,14 @@
         const okBtn = document.getElementById('confirmOkBtn');
         document.getElementById('confirmMessage').textContent = message;
 
+        const modal = bootstrap.Modal.getOrCreateInstance(modalEl);
+
         const onOk = () => {
-            modal.removeEventListener('hidden.bs.modal', onDismiss);
+            modalEl.removeEventListener('hidden.bs.modal', onDismiss);
             modal.hide();
             action();
         };
         const onDismiss = () => okBtn.removeEventListener('click', onOk);
-
-        const modal = bootstrap.Modal.getOrCreateInstance(modalEl);
         okBtn.addEventListener('click', onOk, { once: true });
         modalEl.addEventListener('hidden.bs.modal', onDismiss, { once: true });
         modal.show();

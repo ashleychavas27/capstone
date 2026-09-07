@@ -20,6 +20,8 @@
         @if($prescription)
             @method('PUT')
         @endif
+        {{-- Issuing dentist is always the signed-in dentist (route is role:Dentist). --}}
+        <input type="hidden" name="dentist_id" value="{{ old('dentist_id', $prescription?->dentist_id ?? auth()->id()) }}">
 
         <div class="row g-4">
             <div class="col-lg-5">

@@ -12,12 +12,12 @@ Built with **Laravel 12 (PHP 8.2+)**, **MySQL**, **Blade**, **Bootstrap 5 (CDN)*
 |------|--------------|
 | **1. Dashboard & Reports** | Metric cards (Total Patients, Upcoming Appointments, Pending Bookings, Today), daily schedule table (date-pickable), recent SMS feed, and a **print-friendly daily report** (`/dashboard/print`) with dedicated print CSS. |
 | **2. Patient Records & Treatment History** | Searchable/sortable/paginated DataTable of patient profiles, a patient detail view with medical history + consultation history, and a **modal for the Dentist** to add/update treatment details & clinical notes (which auto-completes the appointment). |
-| **3. Real-Time Appointment Scheduling** | Online booking with **live availability** (taken slots disappear), **double-booking conflict detection** (controller check + DB unique index), and an **automatic SMS reminder** sent & logged whenever a Secretary/Owner confirms an appointment. |
+| **3. Real-Time Appointment Scheduling** | **Passport-style booking calendar** (green = available, red = fully booked, with an "Earliest available appointment" hint and legend — like the DFA passport appointment app) plus **live slot availability**, **double-booking conflict detection** (controller check + DB unique index), and an **automatic SMS reminder** sent & logged whenever a Secretary/Owner confirms an appointment. |
 
 ### Roles & Access Control
 - **Owner / Secretary** — full management: dashboard, patients, schedule, SMS logs.
 - **Dentist** — dashboard (own schedule), patient records, add treatment records. No schedule management.
-- **Patient** — dashboard, online booking, own appointment history. No staff pages.
+- **Patient** — dashboard, online booking, **My Records** (own diagnostic history + e-prescriptions, printable). No staff pages.
 
 ---
 
@@ -30,7 +30,7 @@ Built with **Laravel 12 (PHP 8.2+)**, **MySQL**, **Blade**, **Bootstrap 5 (CDN)*
 | Dentist   | dentist1@clinic.test     |
 | Patient   | ana.villanueva@clinic.test |
 
-The seeder also creates 8 patients, 11 appointments (completed/confirmed/pending/cancelled), 4 treatment records, and SMS logs.
+The seeder also creates 8 patients, 11 appointments (completed/confirmed/pending/cancelled), 4 treatment records, 2 e-prescriptions, and SMS logs.
 
 ---
 
@@ -71,7 +71,8 @@ php artisan serve
 
 ### Run the tests
 ```bash
-php artisan test    # 14 feature tests: auth, RBAC, conflict detection, SMS trigger, treatments
+php artisan test    # feature + unit tests: auth, RBAC, conflict detection, SMS trigger,
+                    # treatments, month availability, patient My Records
 ```
 
 ---
@@ -100,6 +101,8 @@ The app ships with an **eTextMo-compatible mock service** (`app/Services/SmsServ
 **Double-booking guard** is enforced twice:
 1. **Database**: `UNIQUE (dentist_id, appointment_date, time_slot)` (MySQL).
 2. **Application**: `Appointment::isSlotTaken()` also treats unassigned (`NULL` dentist) slots as occupied, ignores `Cancelled` appointments, and re-checks before insert — the booking endpoint returns **HTTP 409** with a friendly message if the slot was just taken.
+
+**Booking calendar** — `GET /appointments/month-availability?dentist_id=X&month=YYYY-MM` powers the passport-style calendar on the booking page. It returns per-day status (`available` / `full` / `past` / `closed` / `unavailable`) plus the earliest bookable date in the window (today → +2 months).
 
 **Clinic hours:** 09:00 AM – 05:00 PM, 30-minute slots (`Appointment::SLOTS`). Past slots for today are excluded in real time.
 

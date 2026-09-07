@@ -52,7 +52,11 @@
 </head>
 <body>
     <div class="text-end mb-3 no-print" style="max-width: 800px; margin-inline: auto;">
-        <a href="{{ route('prescriptions.index') }}" class="btn btn-sm btn-outline-secondary">Back</a>
+        @auth
+            @if(auth()->user()->isStaff())
+                <a href="{{ route('prescriptions.index') }}" class="btn btn-sm btn-outline-secondary">Back</a>
+            @endif
+        @endauth
         <button onclick="window.print()" class="btn btn-sm btn-primary">
             <i class="bi bi-printer me-1"></i>Print
         </button>

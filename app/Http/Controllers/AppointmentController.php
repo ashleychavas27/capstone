@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\Appointment;
 use App\Models\User;
 use App\Services\SmsService;
+use Carbon\Carbon;
 use Illuminate\Database\QueryException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
@@ -194,6 +195,114 @@ class AppointmentController extends Controller
             'date' => $data['date'],
             'slots' => Appointment::freeSlots($data['dentist_id'] ?? null, $data['date']),
         ]);
+    }
+
+    /**
+     * Per-day availability for a month — powers the passport-style booking
+     * calendar. Returns each day's status (available / full / past / closed /
+     * unavailable) plus the earliest bookable date across the whole window.
+     */
+    public function monthAvailability(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'dentist_id' => ['nullable', Rule::exists('users', 'id')->where('role', User::ROLE_DENTIST)],
+            'month' => ['required', 'date_format:Y-m'],
+        ]);
+
+        $dentistId = $data['dentist_id'] ?? null;
+        $monthStart = Carbon::createFromFormat('Y-m', $data['month'])->startOfMonth();
+        $monthEnd = $monthStart->copy()->endOfMonth();
+
+        $today = now()->startOfDay();
+        $windowEnd = now()->addMonths(2)->endOfDay();
+
+        // One grouped query per month: which slots are already taken on which day?
+        $takenByDay = $this->takenSlotsByDay($dentistId, $monthStart->toDateString(), $monthEnd->toDateString());
+
+        $days = [];
+        for ($day = $monthStart->copy(); $day->lte($monthEnd); $day->addDay()) {
+            $date = $day->toDateString();
+            $totalSlots = count(Appointment::SLOTS);
+
+            if ($day->lt($today)) {
+                $days[] = ['date' => $date, 'status' => 'past', 'free_slots' => 0, 'total_slots' => $totalSlots];
+            } elseif ($day->gt($windowEnd)) {
+                $days[] = ['date' => $date, 'status' => 'unavailable', 'free_slots' => 0, 'total_slots' => $totalSlots];
+            } elseif ($day->isSunday()) {
+                $days[] = ['date' => $date, 'status' => 'closed', 'free_slots' => 0, 'total_slots' => $totalSlots];
+            } else {
+                $taken = $takenByDay[$date] ?? [];
+
+                // Past slots today are no longer bookable in real time.
+                if ($date === $today->toDateString()) {
+                    $taken = array_values(array_unique(array_merge(
+                        $taken,
+                        array_filter(Appointment::SLOTS, fn (string $slot) => $slot <= now()->format('H:i'))
+                    )));
+                }
+
+                $free = array_values(array_diff(Appointment::SLOTS, $taken));
+
+                $days[] = [
+                    'date' => $date,
+                    'status' => $free ? 'available' : 'full',
+                    'free_slots' => count($free),
+                    'total_slots' => $totalSlots,
+                ];
+            }
+        }
+
+        return response()->json([
+            'month' => $data['month'],
+            'dentist_id' => $dentistId,
+            'earliest_available' => $this->earliestAvailableDate($dentistId, $today, $windowEnd),
+            'days' => $days,
+        ]);
+    }
+
+    /**
+     * Map of date => taken time slots for a date range (non-cancelled appointments).
+     */
+    protected function takenSlotsByDay(?int $dentistId, string $from, string $to): array
+    {
+        return Appointment::query()
+            ->whereBetween('appointment_date', [$from, $to])
+            ->where('status', '!=', Appointment::STATUS_CANCELLED)
+            ->when($dentistId !== null, fn ($q) => $q->where(fn ($q2) => $q2->where('dentist_id', $dentistId)->orWhereNull('dentist_id')))
+            ->get(['appointment_date', 'time_slot'])
+            ->groupBy(fn ($a) => $a->appointment_date->toDateString())
+            ->map(fn ($group) => $group->pluck('time_slot')->all())
+            ->all();
+    }
+
+    /**
+     * First bookable date within [today, windowEnd] for the given dentist.
+     */
+    protected function earliestAvailableDate(?int $dentistId, Carbon $from, Carbon $to): ?string
+    {
+        $takenByDay = $this->takenSlotsByDay($dentistId, $from->toDateString(), $to->toDateString());
+        $todayString = $from->toDateString();
+
+        for ($day = $from->copy(); $day->lte($to); $day->addDay()) {
+            if ($day->isSunday()) {
+                continue;
+            }
+
+            $taken = $takenByDay[$day->toDateString()] ?? [];
+
+            if ($day->toDateString() === $todayString) {
+                $taken = array_values(array_unique(array_merge(
+                    $taken,
+                    array_filter(Appointment::SLOTS, fn (string $slot) => $slot <= now()->format('H:i'))
+                )));
+            }
+
+            if (array_diff(Appointment::SLOTS, $taken)) {
+                return $day->toDateString();
+            }
+        }
+
+        return null;
     }
 
     /**

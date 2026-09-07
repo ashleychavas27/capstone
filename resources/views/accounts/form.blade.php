@@ -84,7 +84,7 @@
 
                         <div class="mb-3">
                             <label for="password" class="form-label">
-                                Password @unless($account)<span class="text-danger">*</span>@endelse<span class="text-muted small">(leave blank to keep current)</span>@endunless
+                                Password @unless($account)<span class="text-danger">*</span>@else<span class="text-muted small">(leave blank to keep current)</span>@endunless
                             </label>
                             <div class="input-group">
                                 <input type="password" name="password" id="password" minlength="8"
