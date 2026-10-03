@@ -8,9 +8,11 @@ return new class extends Migration
 {
     public function up(): void
     {
+        // NOTE: no ->after() here. Column placement is a MySQL-only clause that
+        // PostgreSQL ignores, so the columns simply append to the table.
         Schema::table('users', function (Blueprint $table) {
-            $table->string('license_no', 50)->nullable()->after('role');
-            $table->boolean('is_active')->default(true)->after('license_no');
+            $table->string('license_no', 50)->nullable();
+            $table->boolean('is_active')->default(true);
         });
     }
 

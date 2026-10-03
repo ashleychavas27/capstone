@@ -68,7 +68,7 @@
             <div>
                 <h4 class="clinic-name fw-bold mb-0">{{ config('app.name', 'Dental Clinic') }}</h4>
                 <div class="small text-muted">Online Records &amp; Appointment System</div>
-                <div class="small text-muted">Mon–Sat · 9:00 AM – 5:00 PM · Contact: (02) 8123-4567</div>
+                <div class="small text-muted">{{ \App\Models\Appointment::openDaysLabel() }} · {{ \App\Models\Appointment::hoursLabel() }} · Contact: (02) 8123-4567</div>
             </div>
         </div>
 

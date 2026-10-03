@@ -22,13 +22,14 @@ class ChatBotFallbackTest extends TestCase
 
         $this->assertStringContainsString('Monday', $reply);
         $this->assertStringContainsString('9:00 AM', $reply);
+        $this->assertStringContainsString('4:00 PM', $reply);
     }
 
     public function test_offline_fallback_answers_services_question(): void
     {
         $reply = $this->bot->reply('what services do you offer');
 
-        $this->assertStringContainsString('Teeth Cleaning', $reply);
+        $this->assertStringContainsString('Dental Cleaning', $reply);
     }
 
     public function test_offline_fallback_answers_booking_question(): void

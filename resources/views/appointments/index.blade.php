@@ -91,20 +91,25 @@
                             <div class="col-md-6">
                                 <label class="form-label">Time slot <span class="text-danger">*</span></label>
                                 <select name="time_slot" class="form-select" required>
-                                    @foreach(\App\Models\Appointment::SLOTS as $slot)
-                                        <option value="{{ $slot }}">{{ \Carbon\Carbon::createFromFormat('H:i', $slot)->format('h:i A') }}</option>
+                                    @foreach(\App\Models\Appointment::slots() as $slot)
+                                        <option value="{{ $slot }}">{{ \App\Models\Appointment::timeLabel($slot) }}</option>
                                     @endforeach
                                 </select>
+                                <div class="form-text">Clinic hours: {{ \App\Models\Appointment::hoursLabel() }} (lunch {{ \App\Models\Appointment::lunchLabel() }}).</div>
                             </div>
                             <div class="col-md-12">
                                 <label class="form-label">Service type <span class="text-danger">*</span></label>
                                 <input type="text" name="service_type" class="form-control" list="serviceList"
-                                       placeholder="e.g. Teeth Cleaning" required>
+                                       placeholder="e.g. {{ \App\Models\Appointment::procedures()[0]['name'] ?? 'Dental Cleaning' }}" required>
                                 <datalist id="serviceList">
-                                    @foreach(\App\Models\Appointment::SERVICES as $service)
-                                        <option value="{{ $service }}">
+                                    @foreach(\App\Models\Appointment::procedures() as $procedure)
+                                        <option value="{{ $procedure['name'] }}">
                                     @endforeach
                                 </datalist>
+                                <div class="form-text">
+                                    Procedures with an estimate block that much time:
+                                    {{ collect(\App\Models\Appointment::procedures())->map(fn ($p) => $p['name'].' ('.$p['display'].')')->implode(' · ') }}
+                                </div>
                             </div>
                         </div>
                     </div>

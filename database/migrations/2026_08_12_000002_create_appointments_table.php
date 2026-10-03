@@ -22,8 +22,15 @@ return new class extends Migration
             $table->timestamps();
 
             // Database-level double-booking guard for the same dentist, date and slot.
-            // (A null dentist_id is allowed and is additionally guarded in the controller.)
-            $table->unique(['dentist_id', 'appointment_date', 'time_slot'], 'appt_unique_slot');
+            //
+            // nullsNotDistinct() is essential on PostgreSQL: a plain unique index
+            // treats every NULL as distinct, so it would NOT stop two unassigned
+            // (dentist_id IS NULL) bookings from taking the same slot. It makes the
+            // constraint enforce one live booking per slot including that case.
+            // Requires PostgreSQL 15+ (Supabase is 15 or newer); other drivers
+            // such as SQLite ignore the modifier.
+            $table->unique(['dentist_id', 'appointment_date', 'time_slot'], 'appt_unique_slot')
+                ->nullsNotDistinct();
 
             $table->index(['appointment_date', 'status']);
         });

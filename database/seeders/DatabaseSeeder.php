@@ -15,6 +15,16 @@ class DatabaseSeeder extends Seeder
 {
     public function run(): void
     {
+        // The clinic database now lives on Supabase and may already contain
+        // real records. Seeding is therefore additive-only: it runs once, on an
+        // empty database, and never duplicates or overwrites live data.
+        // (User::create would otherwise fail on the users.email unique index.)
+        if (User::query()->exists()) {
+            $this->command?->warn('Demo data skipped: accounts already exist. Nothing was changed.');
+
+            return;
+        }
+
         $password = 'password';
 
         // ------------------------------------------------------------------
@@ -36,12 +46,14 @@ class DatabaseSeeder extends Seeder
             'role' => User::ROLE_SECRETARY,
         ]);
 
+        // Duty days are stored per dentist (users.duty_days) and enforced by the
+        // booking rules: Dr. Gil works Mon/Tue/Wed/Fri, Dr. Ortizo Thu/Sat.
         $dentists = [];
         $dentistData = [
-            ['Elena Rodriguez', '0072145'],
-            ['Miguel Bautista', '0089332'],
+            ['Jana Gay Gil', '0072145', '1,2,3,5'],
+            ['Wenca Louise Dajay Ortizo', '0089332', '4,6'],
         ];
-        foreach ($dentistData as $i => [$name, $license]) {
+        foreach ($dentistData as $i => [$name, $license, $dutyDays]) {
             $dentists[] = User::create([
                 'name' => $name,
                 'email' => 'dentist'.($i + 1).'@clinic.test',
@@ -49,6 +61,7 @@ class DatabaseSeeder extends Seeder
                 'contact_no' => '0917'.str_pad((string) (3000000 + $i * 111111), 7, '0', STR_PAD_LEFT),
                 'role' => User::ROLE_DENTIST,
                 'license_no' => $license,
+                'duty_days' => $dutyDays,
             ]);
         }
 
@@ -89,20 +102,33 @@ class DatabaseSeeder extends Seeder
         // ------------------------------------------------------------------
         // Appointments (past + upcoming)
         // ------------------------------------------------------------------
+        // Demo dates slide to the nearest day the clinic is open AND the dentist
+        // is on duty, so the seeded schedule matches what the booking rules allow.
+        $alignDate = function (User $dentist, int $offsetDays): string {
+            $date = now()->copy()->addDays($offsetDays);
+            $step = $offsetDays < 0 ? -1 : 1;
+
+            while (! Appointment::isOpenOn($date) || ! Appointment::isDentistOnDuty($dentist->id, $date)) {
+                $date = $date->copy()->addDays($step);
+            }
+
+            return $date->toDateString();
+        };
+
         $appointments = [
             // Past completed appointments (with treatment records)
-            ['patient' => $patients[0], 'dentist' => $dentists[0], 'days' => -14, 'slot' => '09:00', 'service' => 'Teeth Cleaning (Prophylaxis)', 'status' => Appointment::STATUS_COMPLETED],
+            ['patient' => $patients[0], 'dentist' => $dentists[0], 'days' => -14, 'slot' => '09:00', 'service' => 'Dental Cleaning', 'status' => Appointment::STATUS_COMPLETED],
             ['patient' => $patients[1], 'dentist' => $dentists[1], 'days' => -10, 'slot' => '10:30', 'service' => 'Tooth Extraction', 'status' => Appointment::STATUS_COMPLETED],
             ['patient' => $patients[2], 'dentist' => $dentists[0], 'days' => -7, 'slot' => '14:00', 'service' => 'General Checkup', 'status' => Appointment::STATUS_COMPLETED],
-            ['patient' => $patients[3], 'dentist' => $dentists[1], 'days' => -3, 'slot' => '15:30', 'service' => 'Filling / Restoration', 'status' => Appointment::STATUS_COMPLETED],
+            ['patient' => $patients[3], 'dentist' => $dentists[1], 'days' => -3, 'slot' => '14:30', 'service' => 'Dental Filling', 'status' => Appointment::STATUS_COMPLETED],
             // Confirmed upcoming (SMS reminders were sent)
             ['patient' => $patients[4], 'dentist' => $dentists[0], 'days' => 0, 'slot' => '11:00', 'service' => 'General Checkup', 'status' => Appointment::STATUS_CONFIRMED],
-            ['patient' => $patients[5], 'dentist' => $dentists[1], 'days' => 0, 'slot' => '13:30', 'service' => 'Teeth Cleaning (Prophylaxis)', 'status' => Appointment::STATUS_CONFIRMED],
+            ['patient' => $patients[5], 'dentist' => $dentists[1], 'days' => 0, 'slot' => '13:30', 'service' => 'Dental Cleaning', 'status' => Appointment::STATUS_CONFIRMED],
             ['patient' => $patients[6], 'dentist' => $dentists[0], 'days' => 1, 'slot' => '09:30', 'service' => 'Root Canal Treatment', 'status' => Appointment::STATUS_CONFIRMED],
             ['patient' => $patients[7], 'dentist' => $dentists[1], 'days' => 2, 'slot' => '10:00', 'service' => 'Braces / Orthodontic Consultation', 'status' => Appointment::STATUS_CONFIRMED],
             // Pending bookings
-            ['patient' => $patients[0], 'dentist' => $dentists[0], 'days' => 3, 'slot' => '14:30', 'service' => 'Filling / Restoration', 'status' => Appointment::STATUS_PENDING],
-            ['patient' => $patients[2], 'dentist' => $dentists[1], 'days' => 4, 'slot' => '16:00', 'service' => 'Teeth Whitening', 'status' => Appointment::STATUS_PENDING],
+            ['patient' => $patients[0], 'dentist' => $dentists[0], 'days' => 3, 'slot' => '14:30', 'service' => 'Dental Filling', 'status' => Appointment::STATUS_PENDING],
+            ['patient' => $patients[2], 'dentist' => $dentists[1], 'days' => 4, 'slot' => '15:30', 'service' => 'Teeth Whitening', 'status' => Appointment::STATUS_PENDING],
             // One cancelled
             ['patient' => $patients[1], 'dentist' => $dentists[0], 'days' => 5, 'slot' => '11:30', 'service' => 'General Checkup', 'status' => Appointment::STATUS_CANCELLED],
         ];
@@ -112,9 +138,10 @@ class DatabaseSeeder extends Seeder
             $createdAppointments[] = Appointment::create([
                 'patient_id' => $a['patient']->id,
                 'dentist_id' => $a['dentist']->id,
-                'appointment_date' => now()->addDays($a['days'])->toDateString(),
+                'appointment_date' => $alignDate($a['dentist'], $a['days']),
                 'time_slot' => $a['slot'],
                 'service_type' => $a['service'],
+                'duration_minutes' => Appointment::durationFor($a['service']),
                 'status' => $a['status'],
             ]);
         }

@@ -44,6 +44,7 @@ class AccountController extends Controller
                 'email' => e($u->email),
                 'contact_no' => e((string) $u->contact_no),
                 'license_no' => e((string) $u->license_no),
+                'duty_days' => $u->isDentist() ? $u->dutyDayLabel() : '—',
                 'is_active' => $u->isActive(),
             ]);
 
@@ -58,6 +59,7 @@ class AccountController extends Controller
     public function store(Request $request): RedirectResponse
     {
         $data = $this->validateAccount($request);
+        $data['duty_days'] = $this->normaliseDutyDays($data['duty_days'] ?? null);
 
         User::create([
             ...collect($data)->except(['password', 'password_confirmation'])->all(),
@@ -79,6 +81,7 @@ class AccountController extends Controller
         abort_if($user->isPatient(), 404, 'Staff account not found.');
 
         $data = $this->validateAccount($request, $user);
+        $data['duty_days'] = $this->normaliseDutyDays($data['duty_days'] ?? null);
 
         $user->update(collect($data)->except(['password', 'password_confirmation'])->all());
 
@@ -130,13 +133,41 @@ class AccountController extends Controller
                 Rule::requiredIf(fn () => $request->input('role') === User::ROLE_DENTIST),
                 'nullable', 'string', 'max:50',
             ],
+            // Duty schedule: ISO weekdays the dentist works (see config/clinic.php).
+            'duty_days' => [
+                Rule::requiredIf(fn () => $request->input('role') === User::ROLE_DENTIST),
+                'nullable', 'array',
+            ],
+            'duty_days.*' => ['integer', 'between:1,7'],
             'password' => $existing === null
                 ? ['required', 'string', 'min:8', 'confirmed']
                 : ['nullable', 'string', 'min:8', 'confirmed'],
         ], [
             'license_no.required' => 'The license number is required for dentist accounts.',
+            'duty_days.required' => 'Pick at least one duty day for a dentist account.',
             'password.confirmed' => 'The password confirmation does not match.',
             'email.unique' => 'An account with this email already exists.',
         ]);
+    }
+
+    /**
+     * Weekday checkboxes come in as an array; the column stores "1,2,3,5".
+     *
+     * @param  array<int, mixed>|null  $days
+     */
+    protected function normaliseDutyDays(?array $days): ?string
+    {
+        if (empty($days)) {
+            return null;
+        }
+
+        $days = array_values(array_unique(array_filter(
+            array_map('intval', $days),
+            fn (int $day) => $day >= 1 && $day <= 7
+        )));
+
+        sort($days);
+
+        return $days ? implode(',', $days) : null;
     }
 }

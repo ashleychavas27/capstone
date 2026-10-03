@@ -30,10 +30,16 @@ class PatientController extends Controller
         $patients = User::with(['patientProfile'])
             ->where('role', User::ROLE_PATIENT)
             ->when($search !== '', function ($q) use ($search) {
-                $q->where(function ($q2) use ($search) {
-                    $q2->where('name', 'like', "%{$search}%")
-                        ->orWhere('email', 'like', "%{$search}%")
-                        ->orWhere('contact_no', 'like', "%{$search}%");
+                // Compare lowercased values instead of using LIKE directly:
+                // Postgres (Supabase) LIKE is case-sensitive, whereas MySQL's
+                // default collation made it case-insensitive. LOWER() keeps the
+                // search case-insensitive on every driver.
+                $term = '%'.mb_strtolower($search).'%';
+
+                $q->where(function ($q2) use ($term) {
+                    $q2->whereRaw('LOWER(name) LIKE ?', [$term])
+                        ->orWhereRaw('LOWER(email) LIKE ?', [$term])
+                        ->orWhereRaw('LOWER(contact_no) LIKE ?', [$term]);
                 });
             })
             ->withCount(['patientAppointments as total_appointments'])

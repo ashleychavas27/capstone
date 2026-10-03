@@ -12,6 +12,11 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/up',
     )
     ->withMiddleware(function (Middleware $middleware): void {
+        // Render terminates TLS at its reverse proxy. Without trusting it,
+        // Laravel would think the request is http:// and generate wrong
+        // absolute URLs and skip secure session cookies in production.
+        $middleware->trustProxies(at: '*');
+
         $middleware->alias([
             'role' => EnsureRole::class,
         ]);

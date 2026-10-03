@@ -61,7 +61,7 @@ class BookingCalendarAndRecordsTest extends TestCase
         [$fullDate, $freeDate] = $this->nonSundayDays($month, 2);
 
         // Book every slot on one day so it is fully booked.
-        foreach (Appointment::SLOTS as $slot) {
+        foreach (Appointment::slots() as $slot) {
             Appointment::create([
                 'patient_id' => $patient->id,
                 'dentist_id' => $dentist->id,
@@ -82,7 +82,7 @@ class BookingCalendarAndRecordsTest extends TestCase
         $this->assertSame(0, $days[$fullDate]['free_slots']);
         $this->assertSame('available', $days[$freeDate]['status']);
         $this->assertGreaterThan(0, $days[$freeDate]['free_slots']);
-        $this->assertSame(count(Appointment::SLOTS), $days[$freeDate]['total_slots']);
+        $this->assertSame(count(Appointment::slots()), $days[$freeDate]['total_slots']);
     }
 
     public function test_month_availability_flags_sundays_past_and_out_of_window_days(): void

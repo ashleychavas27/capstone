@@ -169,7 +169,14 @@
         <span><span class="legend-dot" style="background:#D1987F;"></span>Pending</span>
         <span><span class="legend-dot" style="background:#B4B1B2;"></span>Completed</span>
         <span><span class="legend-dot" style="background:#9A8F8E;"></span>Cancelled</span>
-        <span class="ms-auto text-muted small"><i class="bi bi-info-circle me-1"></i>Click any event for complete details.</span>
+        <span class="ms-auto d-flex align-items-center gap-3">
+            {{-- Live indicator. Shown only while the Supabase Realtime channel is
+                 actually joined; see @push('scripts') below. --}}
+            <span id="liveIndicator" class="badge rounded-pill text-bg-light border d-none">
+                <span class="spinner-grow spinner-grow-sm text-success me-1" style="width:.5rem;height:.5rem;"></span>Live
+            </span>
+            <span class="text-muted small"><i class="bi bi-info-circle me-1"></i>Click any event for complete details.</span>
+        </span>
     </div>
 
     <div id="calendar"></div>
@@ -212,12 +219,23 @@
                 center: 'title',
                 right: 'dayGridMonth,timeGridWeek,timeGridDay,listWeek'
             },
-            events: {
-                url: '{{ route('appointments.calendar-events') }}',
-                extraParams: () => ({
+            // Events are loaded through apiFetch() rather than by letting
+            // FullCalendar call the URL itself, so the single AJAX choke point
+            // governs the data source: Laravel by default, or Supabase when
+            // reads are enabled (see resources/js/data.js).
+            events: (info, successCallback, failureCallback) => {
+                const params = new URLSearchParams({
+                    start: info.startStr,
+                    end: info.endStr,
                     dentist_id: dentistFilter ? dentistFilter.value : ''
-                }),
-                failure: () => showToast('Failed to load schedule events.', 'danger')
+                });
+
+                apiFetch(`{{ route('appointments.calendar-events') }}?${params}`)
+                    .then(successCallback)
+                    .catch(() => {
+                        showToast('Failed to load schedule events.', 'danger');
+                        failureCallback();
+                    });
             },
             eventContent: function (arg) {
                 const p = arg.event.extendedProps;
@@ -274,6 +292,38 @@
         }
 
         calendar.render();
+
+        // ------------------------------------------------------------------
+        // Live updates via Supabase Realtime
+        // ------------------------------------------------------------------
+        // The database broadcasts a content-free "something changed" signal
+        // whenever an appointment is created or updated. Reloading the events
+        // on that signal replaces reloading the whole page, and no timer is
+        // involved. The events themselves keep coming from their configured
+        // source (Laravel, or Supabase when reads are enabled), so role
+        // scoping is unaffected.
+        const liveIndicator = document.getElementById('liveIndicator');
+
+        if (window.clinicData && window.clinicData.isDataLayerEnabled()) {
+            let pending = null;
+
+            const unsubscribe = window.clinicData.subscribeToAppointmentChanges({
+                onChange: () => {
+                    // Coalesce bursts (e.g. a status change plus its SMS log).
+                    clearTimeout(pending);
+                    pending = setTimeout(() => calendar.refetchEvents(), 300);
+                },
+                onStatus: (status) => {
+                    const joined = status === 'SUBSCRIBED';
+                    liveIndicator?.classList.toggle('d-none', !joined);
+                    if (joined) {
+                        console.info('[clinic] live schedule updates connected.');
+                    }
+                },
+            });
+
+            window.addEventListener('beforeunload', unsubscribe);
+        }
     });
 </script>
 @endpush

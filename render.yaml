@@ -1,0 +1,86 @@
+# Render blueprint for the Dental Clinic app (Laravel 12 + Supabase Postgres).
+#
+# Secrets are never stored in this file — set them once in the Render
+# dashboard (Environment → Secrets), marked sync: false below:
+#   APP_KEY                php artisan key:generate --show
+#   DB_PASSWORD            the Supabase database password
+#   SUPABASE_SECRET_KEY    server-side only — never a VITE_ variable
+#   VITE_SUPABASE_ANON_KEY publishable browser key (baked into the JS at build)
+#
+# All VITE_ variables must exist BEFORE the build runs, because Vite inlines
+# them into the bundle at build time. Render exposes dashboard env vars to the
+# build phase, so setting them in the dashboard is enough.
+
+services:
+  - type: web
+    name: dental-clinic
+    runtime: php
+    plan: free
+    buildCommand: >
+      composer install --no-dev --prefer-dist --no-interaction --optimize-autoloader
+      && npm install --no-audit --no-fund
+      && npm run build
+    startCommand: php artisan migrate --force && php artisan serve --host 0.0.0.0 --port $PORT
+    healthCheckPath: /up
+    envVars: &env
+      # --- Application ---
+      - key: APP_ENV
+        value: production
+      - key: APP_DEBUG
+        value: "false"
+      - key: APP_URL
+        value: https://dental-clinic.onrender.com # replace with your real service URL
+      - key: APP_KEY
+        sync: false
+      # --- Supabase Postgres (session pooler = IPv4, required on Render) ---
+      - key: DB_CONNECTION
+        value: pgsql
+      - key: DB_HOST
+        value: aws-0-ap-northeast-2.pooler.supabase.com
+      - key: DB_PORT
+        value: "5432"
+      - key: DB_DATABASE
+        value: postgres
+      - key: DB_USERNAME
+        value: postgres.xulolkmcbshegbplcgri
+      - key: DB_PASSWORD
+        sync: false
+      - key: DB_SCHEMA
+        value: dental
+      - key: DB_SSLMODE
+        value: require
+      - key: DB_TIMEZONE
+        value: Asia/Manila
+      # --- Durable state: tables (users/sessions/cache/jobs) live in Supabase,
+      # so logins and cache survive Render's ephemeral disk / redeploys ---
+      - key: SESSION_DRIVER
+        value: database
+      - key: CACHE_STORE
+        value: database
+      - key: QUEUE_CONNECTION
+        value: database
+      # --- Supabase browser layer (baked into the JS bundle at build) ---
+      - key: VITE_SUPABASE_URL
+        value: https://xulolkmcbshegbplcgri.supabase.co
+      - key: VITE_SUPABASE_ANON_KEY
+        sync: false
+      - key: VITE_SUPABASE_SCHEMA
+        value: dental
+      - key: VITE_SUPABASE_READS
+        value: "off"
+      - key: SUPABASE_SECRET_KEY
+        sync: false
+      # --- SMS gateway stays mocked until you have production credentials ---
+      - key: SMS_MOCK
+        value: "true"
+
+# Day-before appointment reminders (Schedule::command('sms:send-reminders')
+# runs daily at 8:00 AM Asia/Manila). Without this cron job the schedule
+# never fires on Render. Cron jobs are unavailable on the Free plan —
+# remove this block on Free and add a paid Cron Job, or run it elsewhere.
+cronJobs:
+  - name: sms-reminders
+    runtime: php
+    plan: free
+    startCommand: php artisan schedule:run
+    envVars: *env

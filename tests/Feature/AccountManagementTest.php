@@ -23,6 +23,8 @@ class AccountManagementTest extends TestCase
             'contact_no' => '09171234567',
             'role' => User::ROLE_DENTIST,
             'license_no' => '0099001',
+            // Dentists carry their own duty schedule (see config/clinic.php).
+            'duty_days' => [1, 2, 3, 5],
             'password' => 'password123',
             'password_confirmation' => 'password123',
         ], $overrides);
@@ -110,6 +112,7 @@ class AccountManagementTest extends TestCase
                 'name' => $dentist->name,
                 'email' => $dentist->email,
                 'license_no' => '0012345',
+                'duty_days' => [2, 4],
                 'password' => '',
                 'password_confirmation' => '',
             ]));

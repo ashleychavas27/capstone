@@ -164,11 +164,15 @@
                                     <div class="col-md-6">
                                         <label for="service_type" class="form-label"><span class="fw-semibold">1.</span> Service type <span class="text-danger">*</span></label>
                                         <select class="form-select" id="service_type" name="service_type" required>
-                                            <option value="">Select service…</option>
-                                            @foreach(\App\Models\Appointment::SERVICES as $service)
-                                                <option value="{{ $service }}">{{ $service }}</option>
+                                            <option value="">Select procedure…</option>
+                                            @foreach(\App\Models\Appointment::onlineProcedures() as $procedure)
+                                                <option value="{{ $procedure['name'] }}">{{ $procedure['name'] }} — {{ $procedure['display'] }}</option>
+                                            @endforeach
+                                            @foreach(\App\Models\Appointment::byAppointmentProcedures() as $procedure)
+                                                <option value="" disabled>{{ $procedure['name'] }} — by appointment, contact the clinic</option>
                                             @endforeach
                                         </select>
+                                        <div class="form-text">The procedure's estimated duration is reserved on the schedule.</div>
                                     </div>
 
                                     <div class="col-md-6">
@@ -176,7 +180,7 @@
                                         <select class="form-select" id="dentist_id" name="dentist_id" required>
                                             <option value="">Select dentist…</option>
                                             @foreach($dentists as $d)
-                                                <option value="{{ $d->id }}">Dr. {{ $d->name }}</option>
+                                                <option value="{{ $d->id }}">Dr. {{ $d->name }} — {{ \App\Models\Appointment::dutyDayLabel($d) }}</option>
                                             @endforeach
                                         </select>
                                     </div>
@@ -198,6 +202,7 @@
                                             <div class="d-flex gap-2 mt-3 small">
                                                 <span class="legend-pill available"><span class="dot"></span>Available</span>
                                                 <span class="legend-pill full"><span class="dot"></span>Fully Booked</span>
+                                                <span class="legend-pill" style="background:#F1EEED;color:#6C6360;"><span class="dot" style="background:#B4B1B2;"></span>Dentist off duty</span>
                                             </div>
                                             <div class="form-text mt-2" id="earliestHint">
                                                 <i class="bi bi-info-circle me-1"></i>Select a dentist to see available dates.
@@ -206,14 +211,21 @@
 
                                         <input type="hidden" id="appointment_date" name="appointment_date" required>
                                         <div class="form-text mt-1">
-                                            Clinic hours: Mon–Sat, 9:00 AM – 5:00 PM
-                                            <span class="text-muted">(closed Sundays · lunch break 12–1 PM)</span>
+                                            Clinic hours: {{ \App\Models\Appointment::openDaysLabel() }}, {{ \App\Models\Appointment::hoursLabel() }}
+                                            <span class="text-muted">(Sunday CLOSED · lunch break {{ \App\Models\Appointment::lunchLabel() }} · holidays open)</span>
                                         </div>
                                     </div>
                                 </div>
 
                                 <div class="mt-3">
-                                    <span class="form-label d-block"><span class="fw-semibold">4.</span> Available time slots <span class="text-danger">*</span></span>
+                                    <span class="form-label d-flex align-items-center gap-2">
+                                        <span><span class="fw-semibold">4.</span> Available time slots <span class="text-danger">*</span></span>
+                                        {{-- Live indicator. Shown only while the Supabase Realtime channel is
+                                             actually joined; see the subscription at the end of this page's script. --}}
+                                        <span id="liveIndicator" class="badge rounded-pill text-bg-light border d-none">
+                                            <span class="spinner-grow spinner-grow-sm text-success me-1" style="width:.5rem;height:.5rem;"></span>Live
+                                        </span>
+                                    </span>
                                     <div id="slotsArea" class="border rounded p-2" style="min-height: 46px;" role="group" aria-label="Available time slots">
                                         <p class="text-muted small mb-0 py-1" id="slotsHint">
                                             <i class="bi bi-info-circle me-1"></i>Select a dentist and date to see available slots.
@@ -233,7 +245,8 @@
                         <div class="card-header"><i class="bi bi-card-checklist me-2 text-primary"></i>Booking Summary</div>
                         <div class="card-body">
                             <dl class="row mb-0 small" id="summaryList">
-                                <dt class="col-5 text-muted fw-normal">Service</dt><dd class="col-7" data-summary="service">—</dd>
+                                <dt class="col-5 text-muted fw-normal">Procedure</dt><dd class="col-7" data-summary="service">—</dd>
+                                <dt class="col-5 text-muted fw-normal">Reserved</dt><dd class="col-7" data-summary="duration">—</dd>
                                 <dt class="col-5 text-muted fw-normal">Dentist</dt><dd class="col-7" data-summary="dentist">—</dd>
                                 <dt class="col-5 text-muted fw-normal">Date</dt><dd class="col-7" data-summary="date">—</dd>
                                 <dt class="col-5 text-muted fw-normal">Time</dt><dd class="col-7" data-summary="time">—</dd>
@@ -253,6 +266,61 @@
                                 @endif
                             </p>
                         </div>
+                    </div>
+                </div>
+            </div>
+
+            {{-- Clinic reference: the client's procedure sheet, duty schedule and clinic hours --}}
+            <div class="row g-4 mt-1">
+                <div class="col-lg-8">
+                    <div class="card h-100">
+                        <div class="card-header"><i class="bi bi-clipboard2-pulse me-2 text-primary"></i>Dental Procedures and Estimated Duration</div>
+                        <div class="table-responsive">
+                            <table class="table table-hover align-middle mb-0">
+                                <thead class="table-light">
+                                    <tr><th style="width:3rem;">#</th><th>Procedure</th><th>Local name</th><th>Estimated duration</th></tr>
+                                </thead>
+                                <tbody>
+                                    @foreach(\App\Models\Appointment::procedures() as $i => $procedure)
+                                        <tr>
+                                            <td class="text-muted">{{ $i + 1 }}</td>
+                                            <td class="fw-semibold">{{ $procedure['name'] }}</td>
+                                            <td class="text-muted small">{{ $procedure['local'] }}</td>
+                                            <td>
+                                                @if($procedure['online'] ?? false)
+                                                    {{ $procedure['display'] }}
+                                                @else
+                                                    <span class="badge rounded-pill text-bg-light border">{{ $procedure['display'] }}</span>
+                                                @endif
+                                            </td>
+                                        </tr>
+                                    @endforeach
+                                </tbody>
+                            </table>
+                        </div>
+                        <div class="card-footer small text-muted">
+                            Procedures marked <em>By appointment</em> are scheduled by the clinic — please contact us and we will arrange the session.
+                        </div>
+                    </div>
+                </div>
+                <div class="col-lg-4">
+                    <div class="card h-100">
+                        <div class="card-header"><i class="bi bi-person-badge me-2 text-primary"></i>Dentist Duty Schedule</div>
+                        <ul class="list-group list-group-flush">
+                            @foreach($dentists as $d)
+                                <li class="list-group-item d-flex justify-content-between align-items-center gap-2">
+                                    <span class="fw-semibold">Dr. {{ $d->name }}</span>
+                                    <span class="small text-muted text-end">{{ \App\Models\Appointment::dutyDayLabel($d) }}</span>
+                                </li>
+                            @endforeach
+                        </ul>
+                        <div class="card-header border-top"><i class="bi bi-clock-history me-2 text-primary"></i>Clinic Schedule</div>
+                        <ul class="list-group list-group-flush small">
+                            <li class="list-group-item d-flex justify-content-between"><span>{{ \App\Models\Appointment::openDaysLabel() }}</span><span class="fw-semibold">{{ \App\Models\Appointment::hoursLabel() }}</span></li>
+                            <li class="list-group-item d-flex justify-content-between"><span>Sunday</span><span class="fw-semibold text-danger">CLOSED</span></li>
+                            <li class="list-group-item d-flex justify-content-between"><span>Holidays</span><span class="fw-semibold text-success">Open</span></li>
+                            <li class="list-group-item d-flex justify-content-between"><span>Lunch break</span><span class="fw-semibold">{{ \App\Models\Appointment::lunchLabel() }}</span></li>
+                        </ul>
                     </div>
                 </div>
             </div>
@@ -573,8 +641,13 @@
         if (el) el.textContent = value;
     }
 
+    // Estimated duration per procedure, mirrored from config/clinic.php so the
+    // summary can say how much time the chosen procedure reserves.
+    const procedureDurations = {!! json_encode(collect(\App\Models\Appointment::procedures())->mapWithKeys(fn ($p) => [$p['name'] => $p['display']])->all()) !!};
+
     function refreshSummary() {
         updateSummary('service', serviceSelect.value || '—');
+        updateSummary('duration', procedureDurations[serviceSelect.value] || '—');
         updateSummary('dentist', dentistSelect.selectedOptions[0]?.textContent.trim() || '—');
         updateSummary('date', dateInput.value ? new Date(dateInput.value + 'T00:00').toLocaleDateString([], { weekday: 'short', year: 'numeric', month: 'short', day: 'numeric' }) : '—');
         updateSummary('time', slotsArea.querySelector('.js-slot.active')?.dataset.label ?? '—');
@@ -606,8 +679,9 @@
             slotsArea.innerHTML = '<p class="text-muted small mb-0 py-1"><i class="bi bi-hourglass-split me-1"></i>Checking availability…</p>';
             try {
                 const params = new URLSearchParams({ dentist_id: dentistSelect.value, date: dateInput.value });
+                if (serviceSelect.value) params.set('service_type', serviceSelect.value);
                 const res = await apiFetch(`{{ route('appointments.available-slots') }}?${params}`);
-                renderSlots(res.slots);
+                renderSlots(res.slots, res.reason, res.duration_label);
             } catch (e) {
                 slotsArea.innerHTML = `<p class="text-danger small mb-0 py-1"><i class="bi bi-exclamation-triangle me-1"></i>${e.message}</p>`;
             }
@@ -615,16 +689,18 @@
         }, 250);
     }
 
-    function renderSlots(slots) {
+    function renderSlots(slots, reason, durationLabel) {
         if (!slots.length) {
-            const day = new Date(dateInput.value + 'T00:00').getDay();
-            const reason = day === 0
-                ? 'The clinic is closed on Sundays. Please pick another day.'
-                : 'No free slots left for this dentist on this date. Try another day.';
-            slotsArea.innerHTML = `<p class="text-warning small mb-0 py-1"><i class="bi bi-calendar-x me-1"></i>${reason}</p>`;
+            // The server explains which rule blocked the day (closed, dentist off
+            // duty, fully booked) so the page never just says "no slots".
+            const text = reason || 'No free slots left for this dentist on this date. Try another day.';
+            slotsArea.innerHTML = `<p class="text-warning small mb-0 py-1"><i class="bi bi-calendar-x me-1"></i>${escapeHtml(text)}</p>`;
             return;
         }
-        slotsArea.innerHTML = slots.map(slot => `
+        const note = durationLabel
+            ? `<p class="text-muted small mb-1"><i class="bi bi-stopwatch me-1"></i>Reserving ${escapeHtml(durationLabel)} per appointment · <span class="fw-semibold">${slots.length}</span> slot${slots.length === 1 ? '' : 's'} free.</p>`
+            : '';
+        slotsArea.innerHTML = note + slots.map(slot => `
             <button type="button" class="btn btn-outline-primary slot-btn mb-1 js-slot" data-slot="${slot}" data-label="${formatTime(slot)}"
                     aria-pressed="false">${formatTime(slot)}</button>`).join('');
     }
@@ -686,6 +762,7 @@
 
         try {
             const params = new URLSearchParams({ dentist_id: dentistSelect.value, month: monthKey(calMonth) });
+            if (serviceSelect.value) params.set('service_type', serviceSelect.value);
             const res = await apiFetch(`{{ route('appointments.month-availability') }}?${params}`);
             calData = res;
             renderCalendar(res);
@@ -767,6 +844,13 @@
         loadCalendar();
     });
 
+    // Changing the procedure changes how much time each booking reserves, so the
+    // calendar's free-slot counts and the slot list both have to be re-read.
+    serviceSelect.addEventListener('change', () => {
+        refreshSlots();
+        loadCalendar();
+    });
+
     // Changing the dentist (the "site" selector) reloads the whole calendar.
     dentistSelect.addEventListener('change', () => {
         clearCalendarSelection();
@@ -837,5 +921,43 @@
         loadCalendar();
     }
     function updateSummaryBlank(key) { updateSummary(key, '—'); }
+
+    // ------------------------------------------------------------------
+    // Live availability via Supabase Realtime
+    // ------------------------------------------------------------------
+    // The database broadcasts a content-free "an appointment changed" signal.
+    // On that signal the open page re-asks for availability, so a slot taken by
+    // someone else disappears here within a moment — no polling timer, and no
+    // need for the user to reload.
+    //
+    // Availability itself deliberately keeps coming from Laravel. Deciding what
+    // is bookable depends on the current time, the clinic's fixed slot list, the
+    // 2-month booking window and the "unassigned dentist" rule. Re-implementing
+    // those rules in the browser would create a second source of truth for a
+    // double-booking decision, so the browser only ever re-reads the answer.
+    const liveIndicator = document.getElementById('liveIndicator');
+
+    if (window.clinicData && window.clinicData.isDataLayerEnabled()) {
+        let pendingRefresh = null;
+
+        const unsubscribe = window.clinicData.subscribeToAppointmentChanges({
+            onChange: () => {
+                clearTimeout(pendingRefresh);
+                pendingRefresh = setTimeout(() => {
+                    if (dentistSelect.value && dateInput.value) refreshSlots();
+                    if (dentistSelect.value) loadCalendar();
+                }, 300);
+            },
+            onStatus: (status) => {
+                const joined = status === 'SUBSCRIBED';
+                liveIndicator?.classList.toggle('d-none', !joined);
+                if (joined) {
+                    console.info('[clinic] live availability connected.');
+                }
+            },
+        });
+
+        window.addEventListener('beforeunload', unsubscribe);
+    }
 </script>
 @endpush

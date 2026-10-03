@@ -24,6 +24,7 @@
                             <th>Email</th>
                             <th>Contact No.</th>
                             <th>License No.</th>
+                            <th>Duty days</th>
                             <th>Status</th>
                             <th class="no-print">Actions</th>
                         </tr>
@@ -67,6 +68,7 @@
                 { data: 'email' },
                 { data: 'contact_no', render: (d) => d || '—' },
                 { data: 'license_no', render: (d) => d || '—' },
+                { data: 'duty_days', render: (d) => d || '—' },
                 {
                     data: 'is_active',
                     render: (active) => active

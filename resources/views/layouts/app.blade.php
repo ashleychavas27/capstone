@@ -27,6 +27,10 @@
         :root {
             --gold: #C89B27;        /* primary accent — CTAs, active nav */
             --gold-dark: #AE8520;
+            /* Deep gold used only as a *text color on white*. #AE8520 on white
+               is only 3.36:1, so labels using it were hard to read; this shade
+               reaches 6.4:1 while staying in the same family. */
+            --gold-ink: #6E5410;
             --peach: #D1987F;       /* secondary accent — soft blocks */
             --peach-dark: #BC8068;
             --taupe: #736261;       /* headings & body text */
@@ -53,7 +57,7 @@
             border-bottom: 1px solid var(--silver);
         }
 
-        .navbar-app .brand-tile {
+        .brand-tile {
             width: 48px;
             height: 48px;
             display: inline-flex;
@@ -66,7 +70,7 @@
             box-shadow: 0 2px 6px rgba(200, 155, 39, 0.18);
         }
 
-        .navbar-app .brand-title {
+        .brand-title {
             font-family: 'Playfair Display', Georgia, serif;
             font-size: 1.15rem;
             font-weight: 700;
@@ -75,7 +79,7 @@
             letter-spacing: -0.01em;
         }
 
-        .navbar-app .brand-subtitle {
+        .brand-subtitle {
             font-family: 'Inter', system-ui, sans-serif;
             font-size: 0.65rem;
             font-weight: 600;
@@ -110,7 +114,7 @@
             box-shadow: 0 0 0 .2rem rgba(200, 155, 39, .25);
         }
 
-        .navbar-app .avatar {
+        .avatar {
             width: 34px;
             height: 34px;
             display: inline-flex;
@@ -122,6 +126,104 @@
             font-family: 'Inter', sans-serif;
             font-size: .8rem;
             font-weight: 700;
+        }
+
+        /* ------------------------------------------------------------------
+           Desktop sidebar navigation
+           ------------------------------------------------------------------
+           From lg up, the signed-in user gets a fixed sidebar instead of the
+           horizontal bar: the menu is grouped (Clinic / Manage / Account) and
+           every destination that used to hide inside the avatar dropdown is
+           visible at a glance. Below lg the sidebar is hidden and the existing
+           collapse navbar takes over, so phones keep the compact header.
+        ------------------------------------------------------------------ */
+        :root { --sidebar-width: 264px; }
+
+        .app-sidebar {
+            width: var(--sidebar-width);
+            position: fixed;
+            top: 0;
+            bottom: 0;
+            left: 0;
+            z-index: 1040;
+            background: #fff;
+            border-right: 1px solid var(--silver);
+            display: flex;
+            flex-direction: column;
+            overflow-y: auto;
+        }
+
+        .app-sidebar .sidebar-brand {
+            display: flex;
+            align-items: center;
+            gap: .6rem;
+            padding: 1rem 1.1rem;
+            border-bottom: 1px solid var(--silver);
+            text-decoration: none;
+        }
+
+        .sidebar-heading {
+            padding: 1rem 1.1rem .35rem;
+            font-family: 'Inter', sans-serif;
+            font-size: .64rem;
+            font-weight: 700;
+            letter-spacing: .1em;
+            text-transform: uppercase;
+            color: #A79E9B;
+        }
+
+        .sidebar-link {
+            display: flex;
+            align-items: center;
+            gap: .7rem;
+            margin: .1rem .6rem;
+            padding: .55rem .75rem;
+            border-radius: .6rem;
+            color: var(--taupe);
+            font-weight: 500;
+            font-size: .9rem;
+            text-decoration: none;
+        }
+
+        .sidebar-link i { font-size: 1.05rem; color: var(--gold-ink); }
+
+        .sidebar-link:hover { background: var(--bg-alt); color: var(--gold-ink); }
+
+        .sidebar-link.active,
+        .sidebar-link.active:hover,
+        .sidebar-link.active:focus {
+            background: var(--gold);
+            color: #fff;
+            font-weight: 600;
+        }
+
+        .sidebar-link.active i { color: #fff; }
+
+        .sidebar-brand .brand-title,
+        .sidebar-brand .brand-subtitle { text-decoration: none; }
+
+        .sidebar-footer {
+            margin-top: auto;
+            padding: .9rem 1.1rem;
+            border-top: 1px solid var(--silver);
+            font-size: .78rem;
+        }
+
+        @media (min-width: 992px) {
+            body.has-sidebar .navbar-app { display: none; }
+            body.has-sidebar .app-shell { margin-left: var(--sidebar-width); }
+            body.has-sidebar .app-shell > main { max-width: 100%; }
+            body.has-sidebar .chat-fab { right: 1.5rem; }
+        }
+
+        @media (max-width: 991.98px) {
+            .app-sidebar { display: none; }
+            /* The sidebar owns the brand on desktop; on mobile the navbar does. */
+            body.has-sidebar .navbar-app .navbar-brand { display: flex; }
+        }
+
+        @media print {
+            .app-sidebar { display: none !important; }
         }
 
         .navbar-app .role-badge {
@@ -244,7 +346,13 @@
 
         .text-muted { color: #9A8F8E !important; }
 
-        a:not(.btn):not(.nav-link):not(.dropdown-item) { color: var(--gold-dark); }
+        /* Inline content links only. Navigation chrome is excluded explicitly:
+           this rule outranks .sidebar-link (three :not() classes beat two), so
+           leaving the sidebar out made the active item gold-on-gold — the label
+           was unreadable. */
+        a:not(.btn):not(.nav-link):not(.dropdown-item):not(.sidebar-link):not(.sidebar-brand) {
+            color: var(--gold-ink);
+        }
 
         /* Status badges in the clinic palette */
         .badge-status { font-size: .78rem; font-weight: 600; letter-spacing: .02em; }
@@ -387,7 +495,94 @@
 
     @stack('styles')
 </head>
-<body>
+@php
+    // The desktop sidebar is for signed-in users only; guests (login/register)
+    // keep the plain bar. `sidebarSections` drives both the sidebar and, below
+    // lg, nothing at all — the collapse navbar stays the mobile menu.
+    $sidebarUser = auth()->user();
+    $sidebarSections = [];
+
+    if ($sidebarUser) {
+        $sidebarSections['Clinic'] = [
+            ['route' => 'dashboard', 'label' => 'Dashboard', 'icon' => 'bi-speedometer2', 'active' => request()->routeIs('dashboard')],
+        ];
+
+        if ($sidebarUser->isStaff()) {
+            $sidebarSections['Clinic'][] = ['route' => 'patients.index', 'label' => 'Patients', 'icon' => 'bi-people', 'active' => request()->routeIs('patients.*')];
+            $sidebarSections['Clinic'][] = ['route' => 'appointments.calendar', 'label' => 'Calendar', 'icon' => 'bi-calendar3', 'active' => request()->routeIs('appointments.calendar')];
+            $sidebarSections['Clinic'][] = ['route' => 'prescriptions.index', 'label' => 'e-Prescription', 'icon' => 'bi-file-earmark-text', 'active' => request()->routeIs('prescriptions.*')];
+        }
+
+        // "My Records" is the patient's own clinical history — staff read the
+        // same information from the Patients page, so they do not get the link.
+        if ($sidebarUser->isPatient()) {
+            $sidebarSections['Clinic'][] = ['route' => 'records.index', 'label' => 'My Records', 'icon' => 'bi-journal-medical', 'active' => request()->routeIs('records.*')];
+        }
+
+        $sidebarSections['Clinic'][] = ['route' => 'appointments.book', 'label' => 'Book Appointment', 'icon' => 'bi-calendar-plus', 'active' => request()->routeIs('appointments.book')];
+
+        // Schedule management and the SMS log are Owner/Secretary tools.
+        if ($sidebarUser->isOwner() || $sidebarUser->isSecretary()) {
+            $sidebarSections['Manage'] = [
+                ['route' => 'appointments.index', 'label' => 'All Schedule', 'icon' => 'bi-calendar2-week', 'active' => request()->routeIs('appointments.index')],
+                ['route' => 'sms.index', 'label' => 'SMS Logs', 'icon' => 'bi-chat-left-dots', 'active' => request()->routeIs('sms.*')],
+            ];
+        }
+
+        // Account administration is the Owner's alone (route group is role:Owner).
+        if ($sidebarUser->isOwner()) {
+            $sidebarSections['Manage'][] = ['route' => 'accounts.index', 'label' => 'Accounts', 'icon' => 'bi-person-badge', 'active' => request()->routeIs('accounts.*')];
+        }
+
+        $sidebarSections['Account'] = [
+            ['route' => 'profile.edit', 'label' => 'My Profile', 'icon' => 'bi-person-gear', 'active' => request()->routeIs('profile.*')],
+        ];
+    }
+@endphp
+<body class="{{ $sidebarUser ? 'has-sidebar' : '' }}">
+
+@if($sidebarUser)
+    <aside class="app-sidebar no-print" aria-label="Main navigation">
+        <a class="sidebar-brand" href="{{ route('dashboard') }}">
+            <img src="{{ asset('logo.png') }}" alt="Logo" class="brand-tile rounded-circle" style="object-fit: cover;">
+            <span class="d-flex flex-column">
+                <span class="brand-title">Datorin-Dajay</span>
+                <span class="brand-subtitle">Dental Clinic · Dingle</span>
+            </span>
+        </a>
+
+        <nav class="flex-grow-1 pb-2">
+            @foreach($sidebarSections as $heading => $links)
+                <div class="sidebar-heading">{{ $heading }}</div>
+                <ul class="list-unstyled mb-0">
+                    @foreach($links as $link)
+                        <li>
+                            <a class="sidebar-link {{ $link['active'] ? 'active' : '' }}" href="{{ route($link['route']) }}">
+                                <i class="bi {{ $link['icon'] }}"></i>{{ $link['label'] }}
+                            </a>
+                        </li>
+                    @endforeach
+                </ul>
+            @endforeach
+        </nav>
+
+        <div class="sidebar-footer">
+            <div class="d-flex align-items-center gap-2 mb-2">
+                <span class="avatar">{{ collect(explode(' ', $sidebarUser->name))->slice(0, 2)->map(fn ($w) => strtoupper(mb_substr($w, 0, 1)))->join('') }}</span>
+                <span class="d-flex flex-column text-truncate">
+                    <span class="fw-semibold text-dark text-truncate">{{ $sidebarUser->name }}</span>
+                    <span class="text-muted">{{ $sidebarUser->role }}</span>
+                </span>
+            </div>
+            <form method="POST" action="{{ route('logout') }}">
+                @csrf
+                <button type="submit" class="btn btn-sm btn-outline-secondary w-100">
+                    <i class="bi bi-box-arrow-right me-1"></i>Logout
+                </button>
+            </form>
+        </div>
+    </aside>
+@endif
 
 <nav class="navbar navbar-expand-lg navbar-app sticky-top no-print py-2">
     <div class="container-fluid px-3 px-xl-5">
@@ -517,6 +712,7 @@
     </div>
 </nav>
 
+<div class="app-shell">
 <main class="container py-4">
     @if(session('success'))
         <div class="alert alert-success alert-dismissible fade show no-print" role="alert">
@@ -544,6 +740,7 @@
 <footer class="text-center text-muted small py-3 no-print">
     {{ config('app.name', 'Dental Clinic') }} · Online Records &amp; Appointment System · Capstone Project
 </footer>
+</div>{{-- /.app-shell --}}
 
 {{-- Toast container for AJAX feedback --}}
 <div class="toast-container position-fixed bottom-0 end-0 p-3" id="toastContainer"></div>
@@ -595,14 +792,48 @@
 <script src="https://cdn.datatables.net/responsive/2.5.0/js/dataTables.responsive.min.js"></script>
 <script src="https://cdn.datatables.net/responsive/2.5.0/js/responsive.bootstrap5.min.js"></script>
 
+{{--
+    The Vite bundle initialises the Supabase data layer and publishes it as
+    window.clinicData. The guard keeps the app bootable before the assets have
+    been built for the first time: without a manifest @vite() throws and every
+    page would 500. Run `npm run build` (or `npm run dev`) to enable it; when
+    the bundle is absent the pages fall back to their Laravel endpoints.
+--}}
+@if (file_exists(public_path('build/manifest.json')) || file_exists(public_path('hot')))
+    @vite('resources/js/app.js')
+@endif
+
 <script>
     // ------------------------------------------------------------------
     // Global AJAX helpers (vanilla JS + fetch)
     // ------------------------------------------------------------------
     const csrfToken = document.querySelector('meta[name="csrf-token"]').content;
 
-    /** Minimal fetch wrapper that sends JSON + CSRF and handles errors. */
+    /**
+     * Minimal fetch wrapper that sends JSON + CSRF and handles errors.
+     *
+     * Reads that have been moved onto Supabase are answered by the data layer
+     * (window.clinicData, see resources/js/data.js) and never reach Laravel.
+     * Everything else — every write, and any read that is still
+     * authorization-scoped — goes to Laravel exactly as before.
+     */
     async function apiFetch(url, options = {}) {
+        const method = (options.method || 'GET').toUpperCase();
+
+        if (method === 'GET' && window.clinicData) {
+            const served = window.clinicData.serveGet(url);
+            if (served) {
+                try {
+                    return await served;
+                } catch (e) {
+                    // Reads are explicitly enabled, so a failure means the
+                    // Supabase setup is wrong (missing grant, policy or view).
+                    // Report it, then fall back so the page still works.
+                    console.error('[clinic] Supabase read failed, falling back to Laravel:', e);
+                }
+            }
+        }
+
         const opts = { ...options };
         opts.headers = { 'X-CSRF-TOKEN': csrfToken, ...(opts.headers || {}) };
 

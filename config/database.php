@@ -1,7 +1,6 @@
 <?php
 
 use Illuminate\Support\Str;
-use Pdo\Mysql;
 
 return [
 
@@ -17,7 +16,7 @@ return [
     |
     */
 
-    'default' => env('DB_CONNECTION', 'sqlite'),
+    'default' => env('DB_CONNECTION', 'pgsql'),
 
     /*
     |--------------------------------------------------------------------------
@@ -32,87 +31,88 @@ return [
 
     'connections' => [
 
-        'sqlite' => [
-            'driver' => 'sqlite',
-            'url' => env('DB_URL'),
-            'database' => env('DB_DATABASE', database_path('database.sqlite')),
-            'prefix' => '',
-            'foreign_key_constraints' => env('DB_FOREIGN_KEYS', true),
-            'busy_timeout' => null,
-            'journal_mode' => null,
-            'synchronous' => null,
-            'transaction_mode' => 'DEFERRED',
-        ],
-
-        'mysql' => [
-            'driver' => 'mysql',
-            'url' => env('DB_URL'),
-            'host' => env('DB_HOST', '127.0.0.1'),
-            'port' => env('DB_PORT', '3306'),
-            'database' => env('DB_DATABASE', 'laravel'),
-            'username' => env('DB_USERNAME', 'root'),
-            'password' => env('DB_PASSWORD', ''),
-            'unix_socket' => env('DB_SOCKET', ''),
-            'charset' => env('DB_CHARSET', 'utf8mb4'),
-            'collation' => env('DB_COLLATION', 'utf8mb4_unicode_ci'),
-            'prefix' => '',
-            'prefix_indexes' => true,
-            'strict' => true,
-            'engine' => null,
-            'options' => extension_loaded('pdo_mysql') ? array_filter([
-                (PHP_VERSION_ID >= 80500 ? Mysql::ATTR_SSL_CA : PDO::MYSQL_ATTR_SSL_CA) => env('MYSQL_ATTR_SSL_CA'),
-            ]) : [],
-        ],
-
-        'mariadb' => [
-            'driver' => 'mariadb',
-            'url' => env('DB_URL'),
-            'host' => env('DB_HOST', '127.0.0.1'),
-            'port' => env('DB_PORT', '3306'),
-            'database' => env('DB_DATABASE', 'laravel'),
-            'username' => env('DB_USERNAME', 'root'),
-            'password' => env('DB_PASSWORD', ''),
-            'unix_socket' => env('DB_SOCKET', ''),
-            'charset' => env('DB_CHARSET', 'utf8mb4'),
-            'collation' => env('DB_COLLATION', 'utf8mb4_unicode_ci'),
-            'prefix' => '',
-            'prefix_indexes' => true,
-            'strict' => true,
-            'engine' => null,
-            'options' => extension_loaded('pdo_mysql') ? array_filter([
-                (PHP_VERSION_ID >= 80500 ? Mysql::ATTR_SSL_CA : PDO::MYSQL_ATTR_SSL_CA) => env('MYSQL_ATTR_SSL_CA'),
-            ]) : [],
-        ],
-
+        /*
+         * Supabase Postgres — the application's only database.
+         *
+         * Supabase has three ways in, and the right one for Laravel is the
+         * Session pooler (Supavisor, port 5432). Do NOT point this at the
+         * Transaction pooler (port 6543): it does not support prepared
+         * statements, which Eloquent relies on. See
+         * database/supabase/README.md for the connection strings.
+         *
+         * search_path keeps the application tables out of Supabase's `public`
+         * schema, which the Data API publishes over REST. The schema named here
+         * must exist (database/supabase/01_schema.sql creates it).
+         */
         'pgsql' => [
             'driver' => 'pgsql',
             'url' => env('DB_URL'),
             'host' => env('DB_HOST', '127.0.0.1'),
             'port' => env('DB_PORT', '5432'),
-            'database' => env('DB_DATABASE', 'laravel'),
-            'username' => env('DB_USERNAME', 'root'),
+            'database' => env('DB_DATABASE', 'postgres'),
+            'username' => env('DB_USERNAME', 'postgres'),
             'password' => env('DB_PASSWORD', ''),
             'charset' => env('DB_CHARSET', 'utf8'),
             'prefix' => '',
             'prefix_indexes' => true,
-            'search_path' => 'public',
-            'sslmode' => env('DB_SSLMODE', 'prefer'),
+            'search_path' => env('DB_SCHEMA', 'dental'),
+            // 'require' fails the connection instead of silently falling back
+            // to plaintext, which is what 'prefer' would do.
+            'sslmode' => env('DB_SSLMODE', 'require'),
+            // Supabase runs in UTC; the clinic works in Asia/Manila. Setting the
+            // session timezone keeps CURRENT_TIMESTAMP defaults (failed_jobs,
+            // useCurrent columns) aligned with the application clock.
+            // Read via env() rather than config(): config files are evaluated
+            // before the config repository is populated.
+            'timezone' => env('DB_TIMEZONE', env('APP_TIMEZONE', 'UTC')),
         ],
 
-        'sqlsrv' => [
-            'driver' => 'sqlsrv',
+        /*
+         * Tests only. The suite runs against an in-memory SQLite database so it
+         * needs no network or Supabase credentials (see phpunit.xml).
+         *
+         * The fallback below is ':memory:' rather than a file path on purpose:
+         * this application has no SQLite file on disk (Supabase Postgres is the
+         * only database), so pointing DB_CONNECTION=sqlite at a file would
+         * silently create an empty one. Tests always pass DB_DATABASE=:memory:
+         * from phpunit.xml, so they are unaffected.
+         *
+         * To run the suite against real Postgres instead, set
+         * DB_CONNECTION=pgsql in phpunit.xml and point DB_* at a Supabase
+         * branch or a disposable database — never at production.
+         */
+        'sqlite' => [
+            'driver' => 'sqlite',
             'url' => env('DB_URL'),
-            'host' => env('DB_HOST', 'localhost'),
-            'port' => env('DB_PORT', '1433'),
-            'database' => env('DB_DATABASE', 'laravel'),
-            'username' => env('DB_USERNAME', 'root'),
-            'password' => env('DB_PASSWORD', ''),
-            'charset' => env('DB_CHARSET', 'utf8'),
+            // Fixed to :memory: on purpose — it must NOT read env('DB_DATABASE'),
+            // because DB_DATABASE holds the Supabase *Postgres* database name.
+            // Reading it here would point this connection at a SQLite file
+            // literally named "postgres". This connection is test-only.
+            'database' => ':memory:',
             'prefix' => '',
-            'prefix_indexes' => true,
-            // 'encrypt' => env('DB_ENCRYPT', 'yes'),
-            // 'trust_server_certificate' => env('DB_TRUST_SERVER_CERTIFICATE', 'false'),
+            'foreign_key_constraints' => env('DB_FOREIGN_KEYS', true),
+            'busy_timeout' => null,
+            'journal_mode' => null,
+            'synchronous' => null,
         ],
+
+        /*
+         * Laravel MERGES the framework's default `connections` with this app's
+         * (LoadConfiguration treats database.connections as a "mergeable
+         * option"). Because these three keys were absent from this file, the
+         * framework's stock mysql / mariadb / sqlsrv definitions were being
+         * silently re-added — and they read DB_HOST / DB_USERNAME from .env, so
+         * the Supabase pooler credentials were showing up under a *MySQL*
+         * connection.
+         *
+         * Declaring them null overrides the merged defaults so they are
+         * genuinely unavailable: this application runs on Supabase PostgreSQL
+         * only, and any attempt to use one now fails loudly instead of quietly
+         * connecting somewhere unintended.
+         */
+        'mysql' => null,
+        'mariadb' => null,
+        'sqlsrv' => null,
 
     ],
 

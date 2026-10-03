@@ -122,6 +122,8 @@ class AppointmentController extends Controller
                 'date_raw' => $a->appointment_date->toDateString(),
                 'time_slot' => $a->formatted_slot,
                 'service_type' => e($a->service_type),
+                'duration' => Appointment::minutesLabel($a->reserved_minutes),
+                'ends_at' => $a->formatted_end,
                 'status' => $a->status,
                 'has_treatment' => $a->treatmentRecord !== null,
                 'editable' => Auth::user()->isStaff(),
@@ -140,11 +142,23 @@ class AppointmentController extends Controller
             'patient_id' => ['required', Rule::exists('users', 'id')->where('role', User::ROLE_PATIENT)],
             'dentist_id' => ['nullable', Rule::exists('users', 'id')->where('role', User::ROLE_DENTIST)],
             'appointment_date' => ['required', 'date', 'after_or_equal:today'],
-            'time_slot' => ['required', Rule::in(Appointment::SLOTS)],
+            'time_slot' => ['required', Rule::in(Appointment::slots())],
             'service_type' => ['required', 'string', 'max:100'],
         ]);
 
-        if (Appointment::isSlotTaken($data['dentist_id'] ?? null, $data['appointment_date'], $data['time_slot'])) {
+        if (! Appointment::isOpenOn($data['appointment_date'])) {
+            return back()->withErrors(['appointment_date' => 'The clinic is closed on that date.'])->withInput();
+        }
+
+        if (! Appointment::isDentistOnDuty($data['dentist_id'] ?? null, $data['appointment_date'])) {
+            return back()->withErrors(['dentist_id' => 'That dentist is not on duty on the selected date.'])->withInput();
+        }
+
+        // Procedures reserve their estimated duration, so the guard must check
+        // the whole reserved window, not just the starting slot.
+        $minutes = Appointment::durationFor($data['service_type']);
+
+        if (Appointment::hasConflict($data['dentist_id'] ?? null, $data['appointment_date'], $data['time_slot'], $minutes)) {
             return back()->withErrors(['time_slot' => 'This date and time slot is already booked. Please choose another slot.'])->withInput();
         }
 
@@ -155,11 +169,12 @@ class AppointmentController extends Controller
                 'appointment_date' => $data['appointment_date'],
                 'time_slot' => $data['time_slot'],
                 'service_type' => $data['service_type'],
+                'duration_minutes' => $minutes,
                 'status' => Appointment::STATUS_PENDING,
             ]);
         } catch (QueryException $e) {
             // Lost the race against the unique slot constraint — report as a booking conflict.
-            if ($e->getCode() === '23000') {
+            if ($this->isUniqueConstraintViolation($e)) {
                 return back()->withErrors(['time_slot' => 'This date and time slot was just booked by someone else. Please choose another slot.'])->withInput();
             }
 
@@ -189,12 +204,49 @@ class AppointmentController extends Controller
         $data = $request->validate([
             'date' => ['required', 'date', 'after_or_equal:today'],
             'dentist_id' => ['nullable', Rule::exists('users', 'id')->where('role', User::ROLE_DENTIST)],
+            'service_type' => ['nullable', 'string', 'max:100'],
         ]);
+
+        $dentistId = $data['dentist_id'] ?? null;
+        $service = $data['service_type'] ?? null;
+
+        // The procedure decides how much time to reserve, so availability is
+        // always asked for as "slots that fit this procedure".
+        $minutes = $service !== null ? Appointment::durationFor($service) : null;
+        $slots = Appointment::freeSlots($dentistId, $data['date'], $minutes);
 
         return response()->json([
             'date' => $data['date'],
-            'slots' => Appointment::freeSlots($data['dentist_id'] ?? null, $data['date']),
+            'slots' => $slots,
+            'duration_minutes' => $minutes,
+            'duration_label' => $service !== null ? Appointment::durationLabel($service) : null,
+            'reason' => $slots ? null : $this->unavailableReason($dentistId, $data['date']),
         ]);
+    }
+
+    /**
+     * Why is nothing free? Mirrors the rules Appointment::freeSlots() applies,
+     * so the booking page can say something more useful than "no slots".
+     */
+    protected function unavailableReason(?int $dentistId, string $date): string
+    {
+        if (! Appointment::isOpenOn($date)) {
+            return 'The clinic is closed on '.Carbon::parse($date)->format('l').
+                '. We are open '.Appointment::openDaysLabel().', '.Appointment::hoursLabel().'.';
+        }
+
+        if (! Appointment::isDentistOnDuty($dentistId, $date)) {
+            $dentist = $dentistId !== null ? User::find($dentistId) : null;
+
+            return sprintf(
+                'Dr. %s is not on duty on %s (duty days: %s). Please pick one of those days or another dentist.',
+                $dentist?->name ?? 'that dentist',
+                Carbon::parse($date)->format('l'),
+                $dentist ? Appointment::dutyDayLabel($dentist) : '—'
+            );
+        }
+
+        return 'No free slots left for this dentist on this date — try another day.';
     }
 
     /**
@@ -207,41 +259,41 @@ class AppointmentController extends Controller
         $data = $request->validate([
             'dentist_id' => ['nullable', Rule::exists('users', 'id')->where('role', User::ROLE_DENTIST)],
             'month' => ['required', 'date_format:Y-m'],
+            'service_type' => ['nullable', 'string', 'max:100'],
         ]);
 
         $dentistId = $data['dentist_id'] ?? null;
+        $service = $data['service_type'] ?? null;
+        $minutes = $service !== null
+            ? Appointment::durationFor($service)
+            : (int) config('clinic.default_duration', 30);
+
         $monthStart = Carbon::createFromFormat('Y-m', $data['month'])->startOfMonth();
         $monthEnd = $monthStart->copy()->endOfMonth();
 
         $today = now()->startOfDay();
-        $windowEnd = now()->addMonths(2)->endOfDay();
+        $windowEnd = now()->addMonths((int) config('clinic.window_months', 2))->endOfDay();
 
-        // One grouped query per month: which slots are already taken on which day?
-        $takenByDay = $this->takenSlotsByDay($dentistId, $monthStart->toDateString(), $monthEnd->toDateString());
+        // One grouped query per month: which windows are already reserved on which day?
+        $busyByDay = $this->busyRangesByDay($dentistId, $monthStart->toDateString(), $monthEnd->toDateString());
+        $totalSlots = count(Appointment::slots());
 
         $days = [];
         for ($day = $monthStart->copy(); $day->lte($monthEnd); $day->addDay()) {
             $date = $day->toDateString();
-            $totalSlots = count(Appointment::SLOTS);
 
             if ($day->lt($today)) {
                 $days[] = ['date' => $date, 'status' => 'past', 'free_slots' => 0, 'total_slots' => $totalSlots];
             } elseif ($day->gt($windowEnd)) {
                 $days[] = ['date' => $date, 'status' => 'unavailable', 'free_slots' => 0, 'total_slots' => $totalSlots];
-            } elseif ($day->isSunday()) {
+            } elseif (! Appointment::isOpenOn($date)) {
                 $days[] = ['date' => $date, 'status' => 'closed', 'free_slots' => 0, 'total_slots' => $totalSlots];
+            } elseif (! Appointment::isDentistOnDuty($dentistId, $date)) {
+                // The dentist simply does not work that day — not the same as the
+                // clinic being closed, so the calendar shows it separately.
+                $days[] = ['date' => $date, 'status' => 'off_duty', 'free_slots' => 0, 'total_slots' => $totalSlots];
             } else {
-                $taken = $takenByDay[$date] ?? [];
-
-                // Past slots today are no longer bookable in real time.
-                if ($date === $today->toDateString()) {
-                    $taken = array_values(array_unique(array_merge(
-                        $taken,
-                        array_filter(Appointment::SLOTS, fn (string $slot) => $slot <= now()->format('H:i'))
-                    )));
-                }
-
-                $free = array_values(array_diff(Appointment::SLOTS, $taken));
+                $free = Appointment::availableStarts($date, $minutes, $busyByDay[$date] ?? []);
 
                 $days[] = [
                     'date' => $date,
@@ -255,50 +307,49 @@ class AppointmentController extends Controller
         return response()->json([
             'month' => $data['month'],
             'dentist_id' => $dentistId,
-            'earliest_available' => $this->earliestAvailableDate($dentistId, $today, $windowEnd),
+            'duration_minutes' => $minutes,
+            'earliest_available' => $this->earliestAvailableDate($dentistId, $today, $windowEnd, $minutes),
             'days' => $days,
         ]);
     }
 
     /**
-     * Map of date => taken time slots for a date range (non-cancelled appointments).
+     * Map of date => reserved [start, end] minute ranges for a date range
+     * (non-cancelled appointments, using each appointment's stored duration).
      */
-    protected function takenSlotsByDay(?int $dentistId, string $from, string $to): array
+    protected function busyRangesByDay(?int $dentistId, string $from, string $to): array
     {
         return Appointment::query()
             ->whereBetween('appointment_date', [$from, $to])
             ->where('status', '!=', Appointment::STATUS_CANCELLED)
             ->when($dentistId !== null, fn ($q) => $q->where(fn ($q2) => $q2->where('dentist_id', $dentistId)->orWhereNull('dentist_id')))
-            ->get(['appointment_date', 'time_slot'])
+            ->get(['appointment_date', 'time_slot', 'service_type', 'duration_minutes'])
             ->groupBy(fn ($a) => $a->appointment_date->toDateString())
-            ->map(fn ($group) => $group->pluck('time_slot')->all())
+            ->map(fn ($group) => $group->map(function (Appointment $a) {
+                $start = Appointment::toMinutes($a->time_slot);
+
+                return [$start, $start + $a->reserved_minutes];
+            })->all())
             ->all();
     }
 
     /**
-     * First bookable date within [today, windowEnd] for the given dentist.
+     * First bookable date within [today, windowEnd] for the given dentist and
+     * appointment length (skips closed days and the dentist's off-duty days).
      */
-    protected function earliestAvailableDate(?int $dentistId, Carbon $from, Carbon $to): ?string
+    protected function earliestAvailableDate(?int $dentistId, Carbon $from, Carbon $to, int $minutes): ?string
     {
-        $takenByDay = $this->takenSlotsByDay($dentistId, $from->toDateString(), $to->toDateString());
-        $todayString = $from->toDateString();
+        $busyByDay = $this->busyRangesByDay($dentistId, $from->toDateString(), $to->toDateString());
 
         for ($day = $from->copy(); $day->lte($to); $day->addDay()) {
-            if ($day->isSunday()) {
+            $date = $day->toDateString();
+
+            if (! Appointment::isOpenOn($date) || ! Appointment::isDentistOnDuty($dentistId, $date)) {
                 continue;
             }
 
-            $taken = $takenByDay[$day->toDateString()] ?? [];
-
-            if ($day->toDateString() === $todayString) {
-                $taken = array_values(array_unique(array_merge(
-                    $taken,
-                    array_filter(Appointment::SLOTS, fn (string $slot) => $slot <= now()->format('H:i'))
-                )));
-            }
-
-            if (array_diff(Appointment::SLOTS, $taken)) {
-                return $day->toDateString();
+            if (Appointment::availableStarts($date, $minutes, $busyByDay[$date] ?? [])) {
+                return $date;
             }
         }
 
@@ -315,15 +366,36 @@ class AppointmentController extends Controller
         $data = $request->validate([
             'dentist_id' => ['required', Rule::exists('users', 'id')->where('role', User::ROLE_DENTIST)],
             'appointment_date' => ['required', 'date', 'after_or_equal:today'],
-            'time_slot' => ['required', Rule::in(Appointment::SLOTS)],
-            'service_type' => ['required', 'string', 'max:100'],
+            'time_slot' => ['required', Rule::in(Appointment::slots())],
+            // Patients may only self-book procedures the clinic offers online;
+            // "by appointment" procedures are arranged at the clinic, so staff
+            // (who are doing that arranging) may still record them here.
+            'service_type' => $isStaff
+                ? ['required', 'string', 'max:100']
+                : ['required', Rule::in(array_column(Appointment::onlineProcedures(), 'name'))],
             'patient_id' => $isStaff ? ['required', Rule::exists('users', 'id')->where('role', User::ROLE_PATIENT)] : ['prohibited'],
         ]);
 
         $patientId = $isStaff ? $data['patient_id'] : Auth::id();
+        $minutes = Appointment::durationFor($data['service_type']);
 
-        // Double-booking guard: refuse if the slot was just taken.
-        if (Appointment::isSlotTaken($data['dentist_id'], $data['appointment_date'], $data['time_slot'])) {
+        if (! Appointment::isOpenOn($data['appointment_date'])) {
+            return response()->json([
+                'message' => 'The clinic is closed on that date. We are open '.Appointment::openDaysLabel().', '.Appointment::hoursLabel().'.',
+                'errors' => ['appointment_date' => ['Clinic closed on that date.']],
+            ], 422);
+        }
+
+        if (! Appointment::isDentistOnDuty($data['dentist_id'], $data['appointment_date'])) {
+            return response()->json([
+                'message' => $this->unavailableReason($data['dentist_id'], $data['appointment_date']),
+                'errors' => ['appointment_date' => ['Dentist not on duty.']],
+            ], 422);
+        }
+
+        // Double-booking guard: refuse if the slot (or the time this procedure
+        // reserves) was taken while the patient was choosing.
+        if (Appointment::hasConflict($data['dentist_id'], $data['appointment_date'], $data['time_slot'], $minutes)) {
             return response()->json([
                 'message' => 'Sorry, that time slot was just booked by someone else. Please pick another slot.',
                 'errors' => ['time_slot' => ['Slot no longer available.']],
@@ -331,19 +403,20 @@ class AppointmentController extends Controller
         }
 
         try {
-            $appointment = DB::transaction(function () use ($data, $patientId) {
+            $appointment = DB::transaction(function () use ($data, $patientId, $minutes) {
                 return Appointment::create([
                     'patient_id' => $patientId,
                     'dentist_id' => $data['dentist_id'],
                     'appointment_date' => $data['appointment_date'],
                     'time_slot' => $data['time_slot'],
                     'service_type' => $data['service_type'],
+                    'duration_minutes' => $minutes,
                     'status' => Appointment::STATUS_PENDING,
                 ]);
             });
         } catch (QueryException $e) {
             // Lost the race against the unique slot constraint — report as a booking conflict.
-            if ($e->getCode() === '23000') {
+            if ($this->isUniqueConstraintViolation($e)) {
                 return response()->json([
                     'message' => 'Sorry, that time slot was just booked by someone else. Please pick another slot.',
                     'errors' => ['time_slot' => ['Slot no longer available.']],
@@ -413,5 +486,18 @@ class AppointmentController extends Controller
         $appointment->delete();
 
         return response()->json(['message' => 'Appointment removed.']);
+    }
+
+    /**
+     * Was this database error a unique-constraint violation?
+     *
+     * Used to detect losing the race for a time slot against the
+     * `appt_unique_slot` constraint. The SQLSTATE is driver-specific:
+     * MySQL and SQLite report 23000 (integrity constraint violation), while
+     * PostgreSQL — and therefore Supabase — reports 23505 (unique violation).
+     */
+    protected function isUniqueConstraintViolation(QueryException $e): bool
+    {
+        return in_array((string) $e->getCode(), ['23000', '23505'], true);
     }
 }

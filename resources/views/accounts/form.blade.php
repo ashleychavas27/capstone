@@ -82,6 +82,24 @@
                             @error('license_no')<div class="invalid-feedback">{{ $message }}</div>@enderror
                         </div>
 
+                        {{-- Dentist duty schedule (ISO weekdays stored as "1,2,3,5") --}}
+                        @php
+                            $selectedDays = array_map('intval', old('duty_days', $account?->dutyDays() ?? []));
+                        @endphp
+                        <div class="mb-3 d-none" id="dutyDaysField">
+                            <label class="form-label d-block">Duty days <span class="text-danger">*</span></label>
+                            <div class="d-flex flex-wrap gap-1">
+                                @foreach([1 => 'Mon', 2 => 'Tue', 3 => 'Wed', 4 => 'Thu', 5 => 'Fri', 6 => 'Sat', 7 => 'Sun'] as $day => $label)
+                                    <input type="checkbox" class="btn-check" name="duty_days[]" id="duty{{ $day }}"
+                                           value="{{ $day }}" autocomplete="off"
+                                           @checked(in_array($day, $selectedDays, true))>
+                                    <label class="btn btn-sm btn-outline-secondary" for="duty{{ $day }}">{{ $label }}</label>
+                                @endforeach
+                            </div>
+                            <div class="form-text">Days this dentist reports for duty — bookings are only offered on these days. Clinic is closed Sundays.</div>
+                            @error('duty_days')<div class="invalid-feedback d-block">{{ $message }}</div>@enderror
+                        </div>
+
                         <div class="mb-3">
                             <label for="password" class="form-label">
                                 Password @unless($account)<span class="text-danger">*</span>@else<span class="text-muted small">(leave blank to keep current)</span>@endunless
@@ -133,10 +151,13 @@
         const roleSelect = document.getElementById('role');
         const licenseField = document.getElementById('licenseField');
 
+        const dutyDaysField = document.getElementById('dutyDaysField');
+
         function syncLicense() {
             const isDentist = roleSelect.value === 'Dentist';
             licenseField.classList.toggle('d-none', !isDentist);
             document.getElementById('license_no').required = isDentist;
+            dutyDaysField.classList.toggle('d-none', !isDentist);
         }
 
         roleSelect.addEventListener('change', () => { syncLicense(); });

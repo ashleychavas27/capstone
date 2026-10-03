@@ -2,7 +2,7 @@
 
 A 3-page web application for a university capstone: **Dental Clinic Records Management + Real-Time Appointment Scheduling with SMS Notification**.
 
-Built with **Laravel 12 (PHP 8.2+)**, **MySQL**, **Blade**, **Bootstrap 5 (CDN)**, **DataTables (CDN)**, and **vanilla JavaScript** — no build steps, no Node/NPM required for the frontend.
+Built with **Laravel 12 (PHP 8.2+)**, **Supabase PostgreSQL**, **Blade**, **Bootstrap 5 (CDN)**, **DataTables (CDN)**, and **vanilla JavaScript** with a **Vite** bundle for the Supabase client.
 
 ---
 
@@ -36,44 +36,59 @@ The seeder also creates 8 patients, 11 appointments (completed/confirmed/pending
 
 ## Quick Start (local)
 
-Requirements: **PHP 8.2+**, **Composer**, and either **SQLite** (zero config) or **MySQL**.
+Requirements: **PHP 8.2+**, **Composer**, **Node 18+ / npm**, and a **Supabase**
+project. The database is Supabase PostgreSQL only — there is no MySQL or SQLite
+configuration anymore.
 
 ```bash
 # 1. Install dependencies
 composer install
+npm install
 
 # 2. Environment
-cp .env.example .env          # or use the provided .env
+cp .env.example .env
 php artisan key:generate
 
-# 3a. SQLite (default — nothing to configure, just create the file)
-touch database/database.sqlite
+# 3. Create the Supabase project
+#    https://database.new  ->  dashboard -> Connect -> Session pooler
+#    Copy the host, port, username and password into .env:
+#      DB_CONNECTION=pgsql
+#      DB_HOST=aws-0-<region>.pooler.supabase.com
+#      DB_PORT=5432
+#      DB_DATABASE=postgres
+#      DB_USERNAME=postgres.<project-ref>
+#      DB_PASSWORD=<your database password>
 
-# 3b. MySQL (recommended for production/lab)
-#   Edit .env:
-#     DB_CONNECTION=mysql
-#     DB_HOST=127.0.0.1
-#     DB_PORT=3306
-#     DB_DATABASE=dental_clinic
-#     DB_USERNAME=root
-#     DB_PASSWORD=yourpassword
-#   Then create the database:  CREATE DATABASE dental_clinic;
+# 4. Apply the schema (Supabase Dashboard -> SQL Editor -> paste -> Run)
+#    database/supabase/01_schema.sql
+#    optional demo data:  database/supabase/02_seed.sql
+#
+#    Do NOT run `php artisan migrate` instead — 01_schema.sql already creates
+#    every table and records the migrations as applied.
 
-# 4. Migrate + seed demo data
-php artisan migrate --seed
+# 5. Build the frontend bundle (Supabase client lives in here)
+npm run build
 
-# 5. Run
+# 6. Run
 php artisan serve
 # → http://localhost:8000
 ```
 
-> No composer? A `composer.phar` is bundled at the repo root — run `php composer.phar install` instead.
+> Full setup detail, connection-pooler choice, schema decisions and the list of
+> remaining work: see [`database/supabase/README.md`](database/supabase/README.md).
+
+> The frontend needs `npm run build` because the Supabase client is bundled by
+> Vite. Without it the app still boots and runs entirely on Laravel — the
+> layout skips the bundle when `public/build` is missing.
 
 ### Run the tests
 ```bash
 php artisan test    # feature + unit tests: auth, RBAC, conflict detection, SMS trigger,
                     # treatments, month availability, patient My Records
 ```
+Tests run against an **in-memory SQLite** database so they need no network and
+no Supabase credentials. This is the one place SQLite is still used — it is test
+infrastructure, not the application. See `phpunit.xml`.
 
 ---
 
@@ -88,23 +103,33 @@ The app ships with an **eTextMo-compatible mock service** (`app/Services/SmsServ
 
 ---
 
-## Database Schema (MySQL)
+## Database Schema (Supabase PostgreSQL)
+
+The authoritative schema lives in [`database/supabase/01_schema.sql`](database/supabase/01_schema.sql)
+— 16 tables in the `dental` schema, deliberately kept out of Supabase's
+published `public` schema. Summary:
 
 | Table | Columns |
 |-------|---------|
-| `users` | id, name, email, password, contact_no, role (`Owner`/`Secretary`/`Dentist`/`Patient`), remember_token, timestamps |
+| `users` | id, name, email, password, contact_no, role (`Owner`/`Secretary`/`Dentist`/`Patient`), license_no, is_active, remember_token, timestamps |
 | `patient_profiles` | id, user_id (FK, unique), age, address, medical_history |
-| `appointments` | id, patient_id (FK→users), dentist_id (FK→users, nullable), appointment_date, time_slot, service_type, status (`Pending`/`Confirmed`/`Completed`/`Cancelled`), **unique (dentist_id, appointment_date, time_slot)** |
+| `appointments` | id, patient_id (FK→users), dentist_id (FK→users, nullable), appointment_date, time_slot, service_type, status (`Pending`/`Confirmed`/`Completed`/`Cancelled`), **unique nulls not distinct (dentist_id, appointment_date, time_slot)** |
 | `treatment_records` | id, appointment_id (FK, unique), patient_id (FK), dentist_id (FK), treatment_details, clinical_notes |
+| `prescriptions` / `prescription_items` | e-prescription header + its medication lines |
 | `sms_logs` | id, recipient_phone, message, status, sent_at |
 
 **Double-booking guard** is enforced twice:
-1. **Database**: `UNIQUE (dentist_id, appointment_date, time_slot)` (MySQL).
-2. **Application**: `Appointment::isSlotTaken()` also treats unassigned (`NULL` dentist) slots as occupied, ignores `Cancelled` appointments, and re-checks before insert — the booking endpoint returns **HTTP 409** with a friendly message if the slot was just taken.
+1. **Database**: `UNIQUE NULLS NOT DISTINCT (dentist_id, appointment_date, time_slot)`
+   (PostgreSQL 15+). The `NULLS NOT DISTINCT` matters: a plain unique index
+   treats every NULL as distinct, so it would otherwise let unlimited
+   unassigned (`NULL` dentist) bookings take the same slot.
+2. **Application**: `Appointment::isSlotTaken()` also treats unassigned (`NULL` dentist) slots as occupied, ignores `Cancelled` appointments, and re-checks before insert — the booking endpoint returns **HTTP 409** with a friendly message if the slot was just taken (SQLSTATE `23505` on PostgreSQL).
 
 **Booking calendar** — `GET /appointments/month-availability?dentist_id=X&month=YYYY-MM` powers the passport-style calendar on the booking page. It returns per-day status (`available` / `full` / `past` / `closed` / `unavailable`) plus the earliest bookable date in the window (today → +2 months).
 
-**Clinic hours:** 09:00 AM – 05:00 PM, 30-minute slots (`Appointment::SLOTS`). Past slots for today are excluded in real time.
+**Clinic hours:** Monday to Saturday, 9:00 AM – 4:00 PM (lunch 12:00–1:00 PM), closed Sundays, holidays open. Slots are 30 minutes (`Appointment::slots()`); past slots for today are excluded in real time.
+
+**Procedures & duty schedule:** every procedure carries an estimated duration (`config/clinic.php`), and a booking reserves that much time — a 1.5-hour cleaning blocks 09:00–10:30, so nothing can be booked inside it. Procedures marked *By appointment* (surgery, braces installation, root canal) are arranged by the clinic instead of self-booked. Dentist duty days live on the account (`users.duty_days`) and are enforced on the booking calendar, the slot list and the booking endpoint.
 
 ---
 

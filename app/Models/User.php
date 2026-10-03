@@ -44,6 +44,7 @@ class User extends Authenticatable
         'role',
         'license_no',
         'is_active',
+        'duty_days',
     ];
 
     /**
@@ -99,6 +100,47 @@ class User extends Authenticatable
     public function isActive(): bool
     {
         return (bool) $this->is_active;
+    }
+
+    /**
+     * Weekdays this dentist is on duty, as ISO numbers (1 = Monday … 7 = Sunday).
+     *
+     * Stored on the account as a comma-separated list ("1,2,3,5") so the clinic
+     * can change a dentist's days without touching code. An account with no days
+     * recorded is treated as available every open day.
+     *
+     * @return array<int, int>
+     */
+    public function dutyDays(): array
+    {
+        $raw = trim((string) ($this->duty_days ?? ''));
+
+        if ($raw === '') {
+            return config('clinic.default_duty_days', [1, 2, 3, 4, 5, 6]);
+        }
+
+        $days = array_values(array_unique(array_filter(
+            array_map('intval', preg_split('/[,\s]+/', $raw) ?: []),
+            fn (int $day) => $day >= 1 && $day <= 7
+        )));
+
+        sort($days);
+
+        return $days ?: config('clinic.default_duty_days', [1, 2, 3, 4, 5, 6]);
+    }
+
+    /** Duty days as a label, e.g. "Mon, Tue, Wed, Fri". */
+    public function dutyDayLabel(): string
+    {
+        $names = [1 => 'Mon', 2 => 'Tue', 3 => 'Wed', 4 => 'Thu', 5 => 'Fri', 6 => 'Sat', 7 => 'Sun'];
+
+        return implode(', ', array_map(fn (int $day) => $names[$day] ?? '', $this->dutyDays()));
+    }
+
+    /** Is this user working on the given date? (Clinic must also be open.) */
+    public function isOnDutyOn(string|\DateTimeInterface $date): bool
+    {
+        return in_array((int) \Carbon\Carbon::parse($date)->isoWeekday(), $this->dutyDays(), true);
     }
 
     /**

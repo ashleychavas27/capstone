@@ -50,7 +50,7 @@ Route::middleware('auth')->group(function () {
     // Patient self-service: diagnostic history & e-prescriptions
     Route::middleware('role:Patient')->group(function () {
         Route::get('/my-records', [RecordController::class, 'index'])->name('records.index');
-        Route::get('/my-records/prescriptions/{prescription}/print', [RecordController::class, 'printPrescription'])->name('records.prescription.print');
+        Route::get('/my-records/prescriptions/{prescription}/print', [RecordController::class, 'printPrescription'])->whereNumber('prescription')->name('records.prescription.print');
     });
 
     // Chat bot assistant
@@ -67,18 +67,18 @@ Route::middleware('auth')->group(function () {
         Route::get('/accounts/data', [AccountController::class, 'data'])->name('accounts.data');
         Route::get('/accounts/create', [AccountController::class, 'create'])->name('accounts.create');
         Route::post('/accounts', [AccountController::class, 'store'])->name('accounts.store');
-        Route::get('/accounts/{user}/edit', [AccountController::class, 'edit'])->name('accounts.edit');
-        Route::put('/accounts/{user}', [AccountController::class, 'update'])->name('accounts.update');
-        Route::patch('/accounts/{user}/toggle-active', [AccountController::class, 'toggleActive'])->name('accounts.toggle-active');
+        Route::get('/accounts/{user}/edit', [AccountController::class, 'edit'])->whereNumber('user')->name('accounts.edit');
+        Route::put('/accounts/{user}', [AccountController::class, 'update'])->whereNumber('user')->name('accounts.update');
+        Route::patch('/accounts/{user}/toggle-active', [AccountController::class, 'toggleActive'])->whereNumber('user')->name('accounts.toggle-active');
     });
 
     // Page 2: Patient records & treatment history (staff)
     Route::middleware('role:Owner,Secretary,Dentist')->group(function () {
         Route::get('/patients', [PatientController::class, 'index'])->name('patients.index');
         Route::get('/patients/data', [PatientController::class, 'data'])->name('patients.data');
-        Route::get('/patients/{user}', [PatientController::class, 'show'])->name('patients.show');
-        Route::get('/patients/{user}/history/print', [PatientController::class, 'printHistory'])->name('patients.history.print');
-        Route::post('/patients/{user}/treatment', [PatientController::class, 'storeTreatment'])->name('patients.treatment.store');
+        Route::get('/patients/{user}', [PatientController::class, 'show'])->whereNumber('user')->name('patients.show');
+        Route::get('/patients/{user}/history/print', [PatientController::class, 'printHistory'])->whereNumber('user')->name('patients.history.print');
+        Route::post('/patients/{user}/treatment', [PatientController::class, 'storeTreatment'])->whereNumber('user')->name('patients.treatment.store');
 
         // Calendar view of the schedule (Dentists see only their own)
         Route::get('/appointments/calendar', [AppointmentController::class, 'calendar'])->name('appointments.calendar');
@@ -92,14 +92,14 @@ Route::middleware('auth')->group(function () {
         Route::get('/prescriptions/create', [PrescriptionController::class, 'create'])
             ->middleware('role:Dentist')->name('prescriptions.create');
         Route::get('/prescriptions/{prescription}/edit', [PrescriptionController::class, 'edit'])
-            ->middleware('role:Dentist')->name('prescriptions.edit');
+            ->whereNumber('prescription')->middleware('role:Dentist')->name('prescriptions.edit');
         Route::put('/prescriptions/{prescription}', [PrescriptionController::class, 'update'])
-            ->middleware('role:Dentist')->name('prescriptions.update');
+            ->whereNumber('prescription')->middleware('role:Dentist')->name('prescriptions.update');
         Route::delete('/prescriptions/{prescription}', [PrescriptionController::class, 'destroy'])
-            ->middleware('role:Owner,Dentist')->name('prescriptions.destroy');
+            ->whereNumber('prescription')->middleware('role:Owner,Dentist')->name('prescriptions.destroy');
         Route::post('/prescriptions', [PrescriptionController::class, 'store'])
             ->middleware('role:Dentist')->name('prescriptions.store');
-        Route::get('/prescriptions/{prescription}/print', [PrescriptionController::class, 'print'])->name('prescriptions.print');
+        Route::get('/prescriptions/{prescription}/print', [PrescriptionController::class, 'print'])->whereNumber('prescription')->name('prescriptions.print');
     });
 
     // Page 3 (staff side): schedule management + SMS trigger
@@ -107,8 +107,8 @@ Route::middleware('auth')->group(function () {
         Route::get('/appointments', [AppointmentController::class, 'index'])->name('appointments.index');
         Route::get('/appointments/data', [AppointmentController::class, 'data'])->name('appointments.data');
         Route::post('/appointments', [AppointmentController::class, 'store'])->name('appointments.store');
-        Route::patch('/appointments/{appointment}/status', [AppointmentController::class, 'updateStatus'])->name('appointments.status');
-        Route::delete('/appointments/{appointment}', [AppointmentController::class, 'destroy'])->name('appointments.destroy');
+        Route::patch('/appointments/{appointment}/status', [AppointmentController::class, 'updateStatus'])->whereNumber('appointment')->name('appointments.status');
+        Route::delete('/appointments/{appointment}', [AppointmentController::class, 'destroy'])->whereNumber('appointment')->name('appointments.destroy');
 
         // SMS notification history
         Route::get('/sms', [SmsController::class, 'index'])->name('sms.index');
