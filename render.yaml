@@ -14,13 +14,8 @@
 services:
   - type: web
     name: dental-clinic
-    runtime: php
+    runtime: docker
     plan: free
-    buildCommand: >
-      composer install --no-dev --prefer-dist --no-interaction --optimize-autoloader
-      && npm install --no-audit --no-fund
-      && npm run build
-    startCommand: php artisan migrate --force && php artisan serve --host 0.0.0.0 --port $PORT
     healthCheckPath: /up
     envVars: &env
       # --- Application ---
@@ -74,13 +69,12 @@ services:
       - key: SMS_MOCK
         value: "true"
 
-# Day-before appointment reminders (Schedule::command('sms:send-reminders')
-# runs daily at 8:00 AM Asia/Manila). Without this cron job the schedule
-# never fires on Render. Cron jobs are unavailable on the Free plan —
-# remove this block on Free and add a paid Cron Job, or run it elsewhere.
-cronJobs:
-  - name: sms-reminders
-    runtime: php
-    plan: free
-    startCommand: php artisan schedule:run
-    envVars: *env
+# Note on Cron Jobs:
+# Cron jobs are unavailable on Render's Free plan.
+# If you upgrade to a paid plan, you can enable this service to run daily reminders:
+# cronJobs:
+#   - name: sms-reminders
+#     runtime: docker
+#     dockerCommand: php artisan schedule:run
+#     plan: starter
+#     envVars: *env
